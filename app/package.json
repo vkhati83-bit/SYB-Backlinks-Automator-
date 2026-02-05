@@ -1,0 +1,60 @@
+{
+  "name": "syb-backlinks-gen",
+  "version": "1.0.0",
+  "description": "Backlink Automation System for ShieldYourBody",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/scripts/seed-prospects.ts",
+    "worker:prospecting": "tsx src/workers/prospecting.worker.ts",
+    "worker:contact-finder": "tsx src/workers/contact-finder.worker.ts",
+    "worker:email-generator": "tsx src/workers/email-generator.worker.ts",
+    "worker:email-sender": "tsx src/workers/email-sender.worker.ts",
+    "worker:follow-up": "tsx src/workers/follow-up.worker.ts",
+    "worker:reply-detection": "tsx src/workers/reply-detection.worker.ts",
+    "worker:link-checker": "tsx src/workers/link-checker.worker.ts",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "backlinks",
+    "seo",
+    "outreach",
+    "email-automation"
+  ],
+  "author": "SYB Team",
+  "license": "PRIVATE",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "bullmq": "^5.34.0",
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "helmet": "^8.0.0",
+    "ioredis": "^5.4.2",
+    "node-cron": "^3.0.3",
+    "pg": "^8.13.1",
+    "resend": "^4.1.0",
+    "winston": "^3.17.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.7",
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.11.10",
+    "@typescript-eslint/eslint-plugin": "^8.21.0",
+    "@typescript-eslint/parser": "^8.21.0",
+    "eslint": "^9.18.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

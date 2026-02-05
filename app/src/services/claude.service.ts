@@ -1,0 +1,294 @@
+import Anthropic from '@anthropic-ai/sdk';
+import env from '../config/env.js';
+import logger from '../utils/logger.js';
+
+const anthropic = new Anthropic({
+  apiKey: env.ANTHROPIC_API_KEY,
+});
+
+export interface EmailGenerationInput {
+  prospectUrl: string;
+  prospectDomain: string;
+  prospectTitle: string | null;
+  prospectDescription: string | null;
+  contactName: string | null;
+  contactEmail: string;
+  opportunityType: 'research_citation' | 'broken_link' | 'guest_post';
+  pageContent?: string;
+}
+
+export interface GeneratedEmail {
+  subject: string;
+  body: string;
+}
+
+// System prompt for email generation
+const SYSTEM_PROMPT = `You are an expert outreach specialist for ShieldYourBody (SYB), a company dedicated to EMF education and protection. Your task is to write personalized, professional outreach emails that feel genuine and helpful, not salesy.
+
+ABOUT SYB:
+- ShieldYourBody.com is a trusted resource on EMF (electromagnetic field) research
+- shieldyourbody.com/research contains 3,600+ peer-reviewed scientific studies on EMF health effects
+- The research database is freely accessible and is a valuable resource for anyone writing about EMF topics
+- SYB also sells EMF protection products, but the outreach should focus on the research value, not products
+
+TONE GUIDELINES:
+- Professional but friendly
+- Genuinely helpful, not pushy
+- Acknowledge their work specifically
+- Be concise - busy professionals appreciate brevity
+- No aggressive CTAs or desperate language
+- Never use phrases like "I hope this email finds you well" or "I stumbled upon your article"
+
+EMAIL STRUCTURE:
+1. Brief, personalized opener referencing their specific work
+2. Value proposition - how SYB's research can help their readers
+3. Soft call-to-action
+4. Professional sign-off
+
+IMPORTANT:
+- Keep emails under 150 words
+- Subject lines should be specific and intriguing, not generic
+- Include 1-2 specific details from their content to show you actually read it
+- The goal is to start a conversation, not close a deal`;
+
+// Generate email for research citation opportunity
+async function generateResearchCitationEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
+  const prompt = `Write an outreach email for this research citation opportunity:
+
+TARGET WEBSITE:
+- URL: ${input.prospectUrl}
+- Domain: ${input.prospectDomain}
+- Page title: ${input.prospectTitle || 'Unknown'}
+- Page description: ${input.prospectDescription || 'Unknown'}
+${input.pageContent ? `- Page content excerpt: ${input.pageContent.substring(0, 1000)}` : ''}
+
+CONTACT:
+- Name: ${input.contactName || 'Editor/Content Team'}
+- Email: ${input.contactEmail}
+
+PITCH:
+The target page discusses EMF-related topics. Suggest that our research database (shieldyourbody.com/research) with 3,600+ peer-reviewed studies could be a valuable resource to cite/link to, enhancing the credibility of their content.
+
+Generate a JSON response with "subject" and "body" fields.`;
+
+  return generateEmail(prompt);
+}
+
+// Generate email for guest post opportunity
+async function generateGuestPostEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
+  const prompt = `Write an outreach email for this guest post opportunity:
+
+TARGET WEBSITE:
+- URL: ${input.prospectUrl}
+- Domain: ${input.prospectDomain}
+- Site focus: ${input.prospectTitle || 'Unknown'}
+- Description: ${input.prospectDescription || 'Unknown'}
+${input.pageContent ? `- Page content excerpt: ${input.pageContent.substring(0, 1000)}` : ''}
+
+CONTACT:
+- Name: ${input.contactName || 'Editor/Content Team'}
+- Email: ${input.contactEmail}
+
+PITCH:
+Propose writing a valuable guest article on EMF health topics for their site. Mention that:
+1. We're from ShieldYourBody, a trusted EMF education resource
+2. We can offer well-researched content backed by our database of 3,600+ peer-reviewed studies
+3. Suggest 2-3 specific article topic ideas relevant to their audience
+4. The article would naturally include a link to our research database
+
+Generate a JSON response with "subject" and "body" fields.`;
+
+  return generateEmail(prompt);
+}
+
+// Generate email for broken link opportunity
+async function generateBrokenLinkEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
+  const prompt = `Write an outreach email for this broken link opportunity:
+
+TARGET WEBSITE:
+- URL: ${input.prospectUrl}
+- Domain: ${input.prospectDomain}
+- Issue: ${input.prospectDescription || 'Has a broken link'}
+
+CONTACT:
+- Name: ${input.contactName || 'Editor/Webmaster'}
+- Email: ${input.contactEmail}
+
+PITCH:
+We noticed a broken link on their page. Politely point this out and suggest our research database (shieldyourbody.com/research) as a relevant replacement resource. Be helpful, not opportunistic.
+
+Generate a JSON response with "subject" and "body" fields.`;
+
+  return generateEmail(prompt);
+}
+
+// Core email generation function
+async function generateEmail(prompt: string): Promise<GeneratedEmail> {
+  try {
+    const response = await anthropic.messages.create({
+      model: env.CLAUDE_MODEL,
+      max_tokens: 1024,
+      system: SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: prompt + '\n\nRespond with valid JSON only: {"subject": "...", "body": "..."}',
+        },
+      ],
+    });
+
+    const content = response.content[0];
+    if (content.type !== 'text') {
+      throw new Error('Unexpected response type');
+    }
+
+    // Parse JSON from response
+    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON found in response');
+    }
+
+    const result = JSON.parse(jsonMatch[0]) as GeneratedEmail;
+
+    if (!result.subject || !result.body) {
+      throw new Error('Invalid email structure');
+    }
+
+    return result;
+  } catch (error) {
+    logger.error('Email generation failed:', error);
+    throw error;
+  }
+}
+
+// Main generation function
+export async function generateOutreachEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
+  logger.info(`Generating ${input.opportunityType} email for ${input.prospectDomain}`);
+
+  switch (input.opportunityType) {
+    case 'research_citation':
+      return generateResearchCitationEmail(input);
+
+    case 'broken_link':
+      return generateBrokenLinkEmail(input);
+
+    case 'guest_post':
+      return generateGuestPostEmail(input);
+
+    default:
+      throw new Error(`Unknown opportunity type: ${input.opportunityType}`);
+  }
+}
+
+// Generate follow-up email
+export async function generateFollowupEmail(
+  originalSubject: string,
+  originalBody: string,
+  contactName: string | null,
+  stepNumber: number
+): Promise<GeneratedEmail> {
+  const prompt = `Write a follow-up email (follow-up #${stepNumber}) for this original outreach:
+
+ORIGINAL EMAIL:
+Subject: ${originalSubject}
+Body: ${originalBody}
+
+CONTACT NAME: ${contactName || 'there'}
+
+FOLLOW-UP GUIDELINES:
+- Follow-up #1 (day 4): Brief, friendly bump. Acknowledge they're busy.
+- Follow-up #2 (day 8): Final follow-up. Offer to help if timing isn't right.
+
+Keep it very short (under 75 words). Be respectful of their time.
+
+Generate a JSON response with "subject" and "body" fields.`;
+
+  return generateEmail(prompt);
+}
+
+// Response classification result
+export interface ClassificationResult {
+  category: 'positive' | 'negotiating' | 'question' | 'declined' | 'negative' | 'auto_reply' | 'bounce' | 'unrelated';
+  sentiment: 'positive' | 'neutral' | 'negative';
+  confidence: number;
+  suggestedAction: string;
+  summary: string;
+}
+
+// Classify a response
+export async function classifyResponse(
+  responseSubject: string,
+  responseBody: string,
+  originalSubject?: string,
+  originalBody?: string
+): Promise<ClassificationResult> {
+  const prompt = `Classify this email response to an outreach email:
+
+ORIGINAL EMAIL (if available):
+Subject: ${originalSubject || 'N/A'}
+Body: ${originalBody || 'N/A'}
+
+RESPONSE RECEIVED:
+Subject: ${responseSubject}
+Body: ${responseBody}
+
+Classify the response into EXACTLY one of these categories:
+- positive: They agreed to add a link or expressed clear interest
+- negotiating: They want something in return (payment, guest post, reciprocal link)
+- question: They have questions or need more information
+- declined: Politely not interested
+- negative: Hostile, angry, or demands removal
+- auto_reply: Automated response (out of office, vacation, etc.)
+- bounce: Email delivery failure
+- unrelated: Wrong person or off-topic response
+
+Also determine:
+- sentiment: 'positive', 'neutral', or 'negative'
+- confidence: 0.0 to 1.0 how confident you are
+- suggestedAction: Brief actionable next step
+- summary: One sentence summary of their response
+
+Respond with JSON only:
+{
+  "category": "...",
+  "sentiment": "...",
+  "confidence": 0.95,
+  "suggestedAction": "...",
+  "summary": "..."
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-3-5-haiku-20241022', // Updated to current fast model for classification
+      max_tokens: 256,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const content = response.content[0];
+    if (content.type !== 'text') {
+      throw new Error('Unexpected response type');
+    }
+
+    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON found');
+    }
+
+    return JSON.parse(jsonMatch[0]) as ClassificationResult;
+  } catch (error) {
+    logger.error('Response classification failed:', error);
+    return {
+      category: 'unrelated',
+      sentiment: 'neutral',
+      confidence: 0,
+      suggestedAction: 'Manual review required',
+      summary: 'Classification failed - manual review needed',
+    };
+  }
+}
+
+export default {
+  generateOutreachEmail,
+  generateFollowupEmail,
+  classifyResponse,
+};
