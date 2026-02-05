@@ -8,6 +8,7 @@ interface Prospect {
   url: string;
   domain: string;
   title: string | null;
+  description: string | null;
   domain_authority: number | null;
   quality_score: number | null;
   opportunity_type: string;
@@ -16,6 +17,9 @@ interface Prospect {
   approval_status: string;
   outcome_tag: string | null;
   contact_count: number;
+  suggested_article_url?: string | null;
+  suggested_article_title?: string | null;
+  match_reason?: string | null;
 }
 
 interface ProspectSectionProps {
