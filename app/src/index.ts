@@ -131,8 +131,8 @@ async function start() {
       logger.warn('Some workers failed to start:', workerError);
     }
 
-    // Start server
-    app.listen(PORT, () => {
+    // Start server (explicitly bind to 0.0.0.0 for Railway)
+    app.listen(PORT, '0.0.0.0', () => {
       logger.info('='.repeat(50));
       logger.info('🚀 SYB Backlinks Gen API');
       logger.info('='.repeat(50));
