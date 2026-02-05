@@ -55,6 +55,7 @@ export default function ProspectsPage() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [newContact, setNewContact] = useState({ email: '', name: '', role: '' });
+  const [displayLimit, setDisplayLimit] = useState(1000); // Show all by default
 
   const [counts, setCounts] = useState({
     pending: 0,
@@ -69,6 +70,12 @@ export default function ProspectsPage() {
         const res = await fetch(`${API_BASE}/prospects/grouped?approval_status=pending`);
         if (res.ok) {
           const data = await res.json();
+          console.log('[DEBUG] API Response:', {
+            total: data.total,
+            broken_link_count: data.broken_link?.length || 0,
+            research_citation_count: data.research_citation?.length || 0,
+            guest_post_count: data.guest_post?.length || 0,
+          });
           setGroupedProspects({
             broken_link: data.broken_link || [],
             research_citation: data.research_citation || [],
@@ -291,13 +298,23 @@ export default function ProspectsPage() {
                 />
                 <ProspectSection
                   title="Research Citations"
-                  prospects={groupedProspects.research_citation}
+                  prospects={groupedProspects.research_citation.slice(0, displayLimit)}
                   selectedId={selectedProspect?.id || null}
                   checkedIds={checkedIds}
                   onSelect={handleSelectProspect}
                   onToggleCheck={handleToggleCheck}
                   onSelectAll={handleSelectAll}
                 />
+                {groupedProspects.research_citation.length > displayLimit && (
+                  <div className="text-center py-4">
+                    <button
+                      onClick={() => setDisplayLimit(prev => prev + 100)}
+                      className="btn btn-secondary"
+                    >
+                      Load More ({groupedProspects.research_citation.length - displayLimit} remaining)
+                    </button>
+                  </div>
+                )}
                 <ProspectSection
                   title="Guest Posts"
                   prospects={groupedProspects.guest_post}

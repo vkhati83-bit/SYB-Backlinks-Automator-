@@ -181,7 +181,7 @@ router.get('/', async (req: Request, res: Response) => {
       approval_status,
       opportunity_type,
       min_score,
-      limit = '50',
+      limit = '1000',
       offset = '0',
       sort_by = 'quality_score',
       sort_order = 'desc',

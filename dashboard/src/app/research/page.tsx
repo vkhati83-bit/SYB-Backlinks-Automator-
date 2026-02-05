@@ -42,7 +42,7 @@ export default function ResearchCitationsPage() {
     setLoading(true);
     try {
       const res = await fetch(
-        `${API_BASE}/prospects?opportunity_type=research_citation&approval_status=${activeTab === 'completed' ? 'approved' : activeTab}`
+        `${API_BASE}/prospects?opportunity_type=research_citation&approval_status=${activeTab === 'completed' ? 'approved' : activeTab}&limit=1000`
       );
       if (res.ok) {
         const data = await res.json();
@@ -66,8 +66,8 @@ export default function ResearchCitationsPage() {
   const fetchCounts = useCallback(async () => {
     try {
       const [pendingRes, approvedRes] = await Promise.all([
-        fetch(`${API_BASE}/prospects?opportunity_type=research_citation&approval_status=pending`),
-        fetch(`${API_BASE}/prospects?opportunity_type=research_citation&approval_status=approved`),
+        fetch(`${API_BASE}/prospects?opportunity_type=research_citation&approval_status=pending&limit=1000`),
+        fetch(`${API_BASE}/prospects?opportunity_type=research_citation&approval_status=approved&limit=1000`),
       ]);
 
       const pendingData = pendingRes.ok ? await pendingRes.json() : { prospects: [] };

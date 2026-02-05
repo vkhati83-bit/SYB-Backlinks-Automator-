@@ -235,8 +235,13 @@ router.post('/research-citations', async (req: Request, res: Response) => {
       campaignId = newCampaign.rows[0].id;
     }
 
+    // Import queue once
+    const { contactFinderQueue } = await import('../../config/queues.js');
+
     // Insert prospects
     let inserted = 0;
+    const queueJobs: Array<{ prospectId: string; url: string; domain: string }> = [];
+
     for (const prospect of filtered.slice(0, limit)) {
       try {
         const qualityScore = Math.min(50 + prospect.score, 100);
@@ -254,9 +259,8 @@ router.post('/research-citations', async (req: Request, res: Response) => {
         if (result.rows.length > 0) {
           const prospectId = result.rows[0].id;
 
-          // Queue contact finder to scrape website for REAL contacts
-          const { contactFinderQueue } = await import('../../config/queues.js');
-          await contactFinderQueue.add('find-contact', {
+          // Collect for batch queueing
+          queueJobs.push({
             prospectId,
             url: prospect.url,
             domain: prospect.domain,
@@ -269,14 +273,25 @@ router.post('/research-citations', async (req: Request, res: Response) => {
       }
     }
 
+    // Batch queue all contact finder jobs (fast, non-blocking)
+    if (queueJobs.length > 0) {
+      await contactFinderQueue.addBulk(
+        queueJobs.map(job => ({
+          name: 'find-contact',
+          data: job,
+        }))
+      );
+    }
+
     // Status will be updated by contact-finder worker when real contacts are found
 
     res.json({
       success: true,
-      message: `Fetched ${inserted} new research citation prospects`,
+      message: `Fetched ${inserted} new research citation prospects. Contact finder queued for ${queueJobs.length} prospects.`,
       total_found: filtered.length,
       inserted: inserted,
       campaign_id: campaignId,
+      queued_for_contact_finding: queueJobs.length,
     });
   } catch (error) {
     logger.error('Error fetching research citations:', error);
