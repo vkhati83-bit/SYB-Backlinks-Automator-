@@ -42,7 +42,7 @@ interface Contact {
   confidence_tier: string;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
 export default function ProspectsPage() {
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'completed'>('pending');

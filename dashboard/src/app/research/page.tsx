@@ -23,7 +23,7 @@ interface Prospect {
   match_reason?: string | null;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
 export default function ResearchCitationsPage() {
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'completed'>('pending');
