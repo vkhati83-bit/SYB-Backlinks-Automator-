@@ -32,6 +32,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     // Mock data - replace with API call
@@ -66,6 +69,44 @@ export default function SettingsPage() {
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
+  };
+
+  const handleFactoryReset = async () => {
+    if (!resetPassword) {
+      alert('Please enter admin password');
+      return;
+    }
+
+    if (!confirm('⚠️ FINAL WARNING: This will permanently delete ALL data including prospects, contacts, emails, campaigns, and metrics. This action CANNOT be undone. Are you absolutely sure?')) {
+      return;
+    }
+
+    setResetting(true);
+    try {
+      const response = await fetch('/api/v1/settings/factory-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmation: 'RESET_EVERYTHING',
+          admin_password: resetPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert(`✅ Factory reset complete!\n\nDeleted:\n- ${data.deleted.prospects} prospects\n- ${data.deleted.contacts} contacts\n- ${data.deleted.emails} emails\n- ${data.deleted.campaigns} campaigns\n- ${data.deleted.responses} responses\n\nSystem restored to factory defaults.`);
+        setShowResetConfirm(false);
+        setResetPassword('');
+        window.location.href = '/'; // Redirect to dashboard
+      } else {
+        alert(`❌ Reset failed: ${data.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      alert('❌ Reset failed: ' + error);
+    } finally {
+      setResetting(false);
+    }
   };
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
@@ -366,6 +407,76 @@ export default function SettingsPage() {
               <span className="text-gray-600">Redis (Job Queue)</span>
               <span className="badge badge-success">Connected</span>
             </div>
+          </div>
+        </div>
+
+        {/* DANGER ZONE */}
+        <div className="card border-2 border-red-300 bg-red-50">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-2xl">⚠️</span>
+            <h2 className="text-lg font-semibold text-red-900">Danger Zone (Admin Only)</h2>
+          </div>
+
+          <div className="bg-white rounded-lg p-4 border border-red-200">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="font-semibold text-red-900">Factory Reset</h3>
+                <p className="text-sm text-red-700 mt-1">
+                  Permanently delete ALL data and restore system to factory defaults.
+                  Use this when the app is buggy or you want a fresh start.
+                </p>
+                <p className="text-xs text-red-600 mt-2 font-medium">
+                  ⚠️ This will delete: All prospects, contacts, emails, campaigns, responses, and metrics.
+                  This action CANNOT be undone!
+                </p>
+              </div>
+            </div>
+
+            {!showResetConfirm ? (
+              <button
+                onClick={() => setShowResetConfirm(true)}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-medium text-sm"
+              >
+                Reset Everything
+              </button>
+            ) : (
+              <div className="space-y-3 bg-red-100 p-4 rounded border border-red-300">
+                <div className="text-sm font-medium text-red-900">
+                  🚨 FINAL CONFIRMATION - Enter admin password:
+                </div>
+                <input
+                  type="password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  placeholder="Admin password"
+                  className="input max-w-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleFactoryReset();
+                  }}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleFactoryReset}
+                    disabled={resetting || !resetPassword}
+                    className="px-4 py-2 bg-red-700 text-white rounded hover:bg-red-800 font-medium text-sm disabled:opacity-50"
+                  >
+                    {resetting ? 'Resetting...' : '🚨 CONFIRM FACTORY RESET'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowResetConfirm(false);
+                      setResetPassword('');
+                    }}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="text-xs text-red-700">
+                  Password hint: Check ADMIN_RESET_PASSWORD in .env (default: syb-admin-reset-2026)
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

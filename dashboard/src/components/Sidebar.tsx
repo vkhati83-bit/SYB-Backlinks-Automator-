@@ -10,6 +10,7 @@ const navItems = [
   { href: '/review', icon: 'inbox', label: 'Review Queue' },
   { href: '/research', icon: 'research', label: 'Research Citations' },
   { href: '/broken-links', icon: 'link', label: 'Broken Links' },
+  { href: '/trash', icon: 'trash', label: 'Trash', badge: 'trashCount' },
   { href: '/campaigns', icon: 'folder', label: 'Campaigns' },
   { href: '/responses', icon: 'mail', label: 'Responses' },
   { href: '/metrics', icon: 'chart', label: 'Metrics' },
@@ -63,14 +64,37 @@ const icons: Record<string, JSX.Element> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   ),
+  trash: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  ),
 };
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
+  const [trashCount, setTrashCount] = useState(0);
 
   useEffect(() => {
     setMounted(true);
+
+    // Fetch trash count
+    const fetchTrashCount = async () => {
+      try {
+        const response = await fetch('/api/v1/prospects/stats');
+        const data = await response.json();
+        setTrashCount(data.trash || 0);
+      } catch (error) {
+        console.error('Failed to fetch trash count:', error);
+      }
+    };
+
+    fetchTrashCount();
+
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchTrashCount, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   // Prevent hydration mismatch by not rendering until mounted
@@ -96,6 +120,8 @@ export default function Sidebar() {
           const isActive = pathname === item.href ||
             (item.href !== '/' && pathname?.startsWith(item.href));
 
+          const badgeCount = item.badge === 'trashCount' ? trashCount : null;
+
           return (
             <Link
               key={item.href}
@@ -107,7 +133,12 @@ export default function Sidebar() {
               }`}
             >
               {icons[item.icon]}
-              <span>{item.label}</span>
+              <span className="flex-1">{item.label}</span>
+              {badgeCount !== null && badgeCount > 0 && (
+                <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                  {badgeCount}
+                </span>
+              )}
             </Link>
           );
         })}
