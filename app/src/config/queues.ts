@@ -27,6 +27,7 @@ export const QUEUE_NAMES = {
   FOLLOWUP: 'followup',
   LINK_CHECKER: 'link-checker',
   RESPONSE_CLASSIFIER: 'response-classifier',
+  BROKEN_LINK_VERIFIER: 'broken-link-verifier',
 } as const;
 
 // Create queues
@@ -71,6 +72,14 @@ export const responseClassifierQueue = new Queue(QUEUE_NAMES.RESPONSE_CLASSIFIER
   defaultJobOptions,
 });
 
+export const brokenLinkVerifierQueue = new Queue(QUEUE_NAMES.BROKEN_LINK_VERIFIER, {
+  connection: redis,
+  defaultJobOptions: {
+    ...defaultJobOptions,
+    attempts: 2,
+  },
+});
+
 // All queues for easy iteration
 export const allQueues = [
   prospectingQueue,
@@ -80,6 +89,7 @@ export const allQueues = [
   followupQueue,
   linkCheckerQueue,
   responseClassifierQueue,
+  brokenLinkVerifierQueue,
 ];
 
 // Queue events for monitoring
@@ -137,6 +147,7 @@ export default {
   followupQueue,
   linkCheckerQueue,
   responseClassifierQueue,
+  brokenLinkVerifierQueue,
   allQueues,
   getQueueStats,
   closeQueues,

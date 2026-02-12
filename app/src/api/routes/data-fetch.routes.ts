@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { db, seoDb } from '../../db/index.js';
 import { apiLogRepository } from '../../db/repositories/api-log.repository.js';
 import { contactFinderQueue } from '../../config/queues.js';
@@ -184,12 +185,17 @@ router.post('/research-citations', async (req: Request, res: Response) => {
 
     const result = await seoDb.query(query, params);
 
-    // Filter and score
-    const filtered: any[] = [];
+    // Score ALL prospects (no data loss!)
+    const allProspects: any[] = [];
     const seenDomains = new Set<string>();
+    const batchId = randomUUID();
+    let autoApproved = 0;
+    let needsReview = 0;
+    let autoRejected = 0;
+    const filterBreakdown: Record<string, number> = {};
 
-    // Get existing domains to skip
-    const existingProspects = await db.query('SELECT domain FROM prospects');
+    // Get existing domains (including deleted) to track duplicates
+    const existingProspects = await db.query('SELECT domain FROM prospects WHERE deleted_at IS NULL');
     for (const row of existingProspects.rows) {
       seenDomains.add(row.domain.toLowerCase().replace('www.', ''));
     }
@@ -198,26 +204,65 @@ router.post('/research-citations', async (req: Request, res: Response) => {
       const domain = (row.domain || '').toLowerCase().replace('www.', '');
       const text = `${row.keyword || ''} ${row.title || ''}`;
 
-      if (seenDomains.has(domain)) continue;
-      if (isDomainExcluded(domain)) continue;
-      if (hasExcludeSignal(text)) continue;
-      if (!hasHealthSignal(text)) continue;
+      // Score instead of filtering
+      const filterReasons: string[] = [];
+      let qualityScore = scoreProspect(row);
 
-      const score = scoreProspect(row);
+      // Apply penalties but don't discard
+      if (seenDomains.has(domain)) {
+        filterReasons.push('duplicate_domain');
+        qualityScore -= 50;
+      }
+      if (isDomainExcluded(domain)) {
+        filterReasons.push('domain_blocklist');
+        qualityScore -= 40;
+      }
+      if (hasExcludeSignal(text)) {
+        filterReasons.push('exclude_keywords');
+        qualityScore -= 30;
+      }
+      if (!hasHealthSignal(text)) {
+        filterReasons.push('no_health_keywords');
+        qualityScore -= 25;
+      }
+
+      // Ensure score is 0-100
+      qualityScore = Math.max(0, Math.min(100, qualityScore));
+
+      // Categorize based on final score
+      let filterStatus: 'auto_approved' | 'needs_review' | 'auto_rejected';
+      if (qualityScore >= 70) {
+        filterStatus = 'auto_approved';
+        autoApproved++;
+      } else if (qualityScore >= 30) {
+        filterStatus = 'needs_review';
+        needsReview++;
+      } else {
+        filterStatus = 'auto_rejected';
+        autoRejected++;
+      }
+
+      // Track filter reasons
+      filterReasons.forEach(reason => {
+        filterBreakdown[reason] = (filterBreakdown[reason] || 0) + 1;
+      });
+
       seenDomains.add(domain);
 
-      filtered.push({
+      allProspects.push({
         url: row.url,
         domain: domain,
         title: row.title || '',
         keyword: row.keyword || '',
         position: row.position,
-        score: score,
+        score: qualityScore,
+        filterStatus: filterStatus,
+        filterReasons: filterReasons,
       });
     }
 
-    // Sort by score
-    filtered.sort((a, b) => b.score - a.score);
+    // Sort by score (best first)
+    allProspects.sort((a, b) => b.score - a.score);
 
     // Get or create campaign
     let campaignId: string;
@@ -238,38 +283,52 @@ router.post('/research-citations', async (req: Request, res: Response) => {
     // Import queue once
     const { contactFinderQueue } = await import('../../config/queues.js');
 
-    // Insert prospects
+    // Insert ALL prospects with filter status (no limit!)
     let inserted = 0;
     const queueJobs: Array<{ prospectId: string; url: string; domain: string }> = [];
 
-    for (const prospect of filtered.slice(0, limit)) {
+    for (const prospect of allProspects) {
       try {
-        const qualityScore = Math.min(50 + prospect.score, 100);
-
         const result = await db.query(`
           INSERT INTO prospects (
             url, domain, title, quality_score,
+            filter_status, filter_reasons, filter_score,
             opportunity_type, source, status, campaign_id, approval_status, created_at
           )
-          VALUES ($1, $2, $3, $4, 'research_citation', 'seo_command_center', 'new', $5, 'pending', NOW())
-          ON CONFLICT (url) DO NOTHING
+          VALUES ($1, $2, $3, $4, $5, $6, $7, 'research_citation', 'seo_command_center', 'new', $8, 'pending', NOW())
+          ON CONFLICT (url) DO UPDATE SET
+            quality_score = GREATEST(prospects.quality_score, EXCLUDED.quality_score),
+            filter_reasons = array_cat(prospects.filter_reasons, EXCLUDED.filter_reasons),
+            filter_score = GREATEST(prospects.filter_score, EXCLUDED.filter_score),
+            updated_at = NOW()
           RETURNING id
-        `, [prospect.url, prospect.domain, prospect.title, qualityScore, campaignId]);
+        `, [
+          prospect.url,
+          prospect.domain,
+          prospect.title,
+          prospect.score,
+          prospect.filterStatus,
+          prospect.filterReasons,
+          prospect.score,
+          campaignId
+        ]);
 
         if (result.rows.length > 0) {
           const prospectId = result.rows[0].id;
 
-          // Collect for batch queueing
-          queueJobs.push({
-            prospectId,
-            url: prospect.url,
-            domain: prospect.domain,
-          });
+          // Only queue auto-approved and needs-review for contact finding
+          if (prospect.filterStatus === 'auto_approved' || prospect.filterStatus === 'needs_review') {
+            queueJobs.push({
+              prospectId,
+              url: prospect.url,
+              domain: prospect.domain,
+            });
+          }
 
           inserted++;
         }
       } catch (error) {
-        // Skip duplicates
+        logger.debug('Error inserting prospect:', error);
       }
     }
 
@@ -283,13 +342,26 @@ router.post('/research-citations', async (req: Request, res: Response) => {
       );
     }
 
+    // Log filter summary for analytics
+    await db.query(`
+      INSERT INTO prospect_filter_log (
+        batch_id, fetch_type, total_found, auto_approved, needs_review, auto_rejected, filter_breakdown
+      )
+      VALUES ($1, 'research_citations', $2, $3, $4, $5, $6)
+    `, [batchId, allProspects.length, autoApproved, needsReview, autoRejected, JSON.stringify(filterBreakdown)]);
+
     // Status will be updated by contact-finder worker when real contacts are found
 
     res.json({
       success: true,
-      message: `Fetched ${inserted} new research citation prospects. Contact finder queued for ${queueJobs.length} prospects.`,
-      total_found: filtered.length,
+      message: `Saved ${inserted} prospects (${autoApproved} auto-approved, ${needsReview} need review, ${autoRejected} auto-rejected). Contact finder queued for ${queueJobs.length} prospects.`,
+      batch_id: batchId,
+      total_found: allProspects.length,
       inserted: inserted,
+      auto_approved: autoApproved,
+      needs_review: needsReview,
+      auto_rejected: autoRejected,
+      filter_breakdown: filterBreakdown,
       campaign_id: campaignId,
       queued_for_contact_finding: queueJobs.length,
     });
@@ -326,9 +398,14 @@ router.post('/broken-links', async (req: Request, res: Response) => {
 
     const allResults: any[] = [];
     const seenDomains = new Set<string>();
+    const batchId = randomUUID();
+    let autoApproved = 0;
+    let needsReview = 0;
+    let autoRejected = 0;
+    const filterBreakdown: Record<string, number> = {};
 
-    // Get existing domains
-    const existingProspects = await db.query('SELECT domain FROM prospects');
+    // Get existing domains (including deleted)
+    const existingProspects = await db.query('SELECT domain FROM prospects WHERE deleted_at IS NULL');
     for (const row of existingProspects.rows) {
       seenDomains.add(row.domain.toLowerCase());
     }
@@ -391,14 +468,45 @@ router.post('/broken-links', async (req: Request, res: Response) => {
             // DataForSEO uses domain_from for the referring domain
             const referringDomain = (item.domain_from || '').toLowerCase().replace(/^www\./, '');
 
-            if (seenDomains.has(referringDomain)) continue;
-            if (isDomainExcluded(referringDomain)) continue;
+            // Score instead of filtering
+            const filterReasons: string[] = [];
+            let qualityScore = Math.min(50 + (item.rank || 0) * 0.5, 100);
 
-            // Skip spam
+            if (seenDomains.has(referringDomain)) {
+              filterReasons.push('duplicate_domain');
+              qualityScore -= 50;
+            }
+            if (isDomainExcluded(referringDomain)) {
+              filterReasons.push('domain_blocklist');
+              qualityScore -= 40;
+            }
+
+            // Skip spam (but track it)
             if (referringDomain.includes('shareasale') ||
                 referringDomain.includes('klaviyo') ||
                 referringDomain.includes('mailchimp') ||
-                referringDomain.includes('myshopify')) continue;
+                referringDomain.includes('myshopify')) {
+              filterReasons.push('spam_domain');
+              qualityScore -= 60;
+            }
+
+            // Categorize
+            let filterStatus: 'auto_approved' | 'needs_review' | 'auto_rejected';
+            if (qualityScore >= 70) {
+              filterStatus = 'auto_approved';
+              autoApproved++;
+            } else if (qualityScore >= 30) {
+              filterStatus = 'needs_review';
+              needsReview++;
+            } else {
+              filterStatus = 'auto_rejected';
+              autoRejected++;
+            }
+
+            // Track filter reasons
+            filterReasons.forEach(reason => {
+              filterBreakdown[reason] = (filterBreakdown[reason] || 0) + 1;
+            });
 
             seenDomains.add(referringDomain);
 
@@ -412,6 +520,9 @@ router.post('/broken-links', async (req: Request, res: Response) => {
               anchorText: item.anchor || '',
               domainRank: item.rank || item.domain_from_rank || 0,
               pageTitle: item.page_from_title || '',
+              qualityScore: qualityScore,
+              filterStatus: filterStatus,
+              filterReasons: filterReasons,
             });
           }
         }
@@ -426,8 +537,8 @@ router.post('/broken-links', async (req: Request, res: Response) => {
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    // Sort by rank
-    allResults.sort((a, b) => b.domainRank - a.domainRank);
+    // Sort by quality score (best first)
+    allResults.sort((a, b) => b.qualityScore - a.qualityScore);
 
     // Get or create campaign
     let campaignId: string;
@@ -445,9 +556,11 @@ router.post('/broken-links', async (req: Request, res: Response) => {
       campaignId = newCampaign.rows[0].id;
     }
 
-    // Insert prospects with article recommendations
+    // Insert ALL prospects with article recommendations (no limit!)
     let inserted = 0;
-    for (const link of allResults.slice(0, 50)) {
+    const queueJobs: Array<{ prospectId: string; url: string; domain: string }> = [];
+
+    for (const link of allResults) {
       try {
         // Find matching SYB article for this broken link
         const articleMatch = await findMatchingArticle(
@@ -456,7 +569,6 @@ router.post('/broken-links', async (req: Request, res: Response) => {
           link.pageTitle
         );
 
-        const qualityScore = Math.min(50 + link.domainRank * 0.5, 100);
         const description = `BROKEN LINK OPPORTUNITY
 Broken URL: ${link.brokenUrl}
 Anchor text: "${link.anchorText}"
@@ -466,11 +578,16 @@ ${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch 
         const result = await db.query(`
           INSERT INTO prospects (
             url, domain, title, description, domain_authority, quality_score,
+            filter_status, filter_reasons, filter_score,
             opportunity_type, source, status, campaign_id, approval_status,
             suggested_article_url, suggested_article_title, match_reason, created_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, 'broken_link', 'dataforseo_broken', 'new', $7, 'pending', $8, $9, $10, NOW())
-          ON CONFLICT (url) DO NOTHING
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'broken_link', 'dataforseo_broken', 'new', $10, 'pending', $11, $12, $13, NOW())
+          ON CONFLICT (url) DO UPDATE SET
+            quality_score = GREATEST(prospects.quality_score, EXCLUDED.quality_score),
+            filter_reasons = array_cat(prospects.filter_reasons, EXCLUDED.filter_reasons),
+            filter_score = GREATEST(prospects.filter_score, EXCLUDED.filter_score),
+            updated_at = NOW()
           RETURNING id
         `, [
           link.referringPageUrl,
@@ -478,7 +595,10 @@ ${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch 
           link.pageTitle || `Broken link: ${link.anchorText}`,
           description,
           link.domainRank,
-          qualityScore,
+          link.qualityScore,
+          link.filterStatus,
+          link.filterReasons,
+          link.qualityScore,
           campaignId,
           articleMatch?.article.url || null,
           articleMatch?.article.title || null,
@@ -488,31 +608,56 @@ ${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch 
         if (result.rows.length > 0) {
           const prospectId = result.rows[0].id;
 
-          // Queue contact finder to scrape website for REAL contacts
-          const { contactFinderQueue } = await import('../../config/queues.js');
-          await contactFinderQueue.add('find-contact', {
-            prospectId,
-            url: link.referringPageUrl,
-            domain: link.referringDomain,
-          });
+          // Only queue auto-approved and needs-review for contact finding
+          if (link.filterStatus === 'auto_approved' || link.filterStatus === 'needs_review') {
+            queueJobs.push({
+              prospectId,
+              url: link.referringPageUrl,
+              domain: link.referringDomain,
+            });
+          }
 
           inserted++;
         }
       } catch (error) {
-        // Skip duplicates
         logger.debug('Error inserting prospect:', error);
       }
     }
+
+    // Batch queue contact finder jobs
+    if (queueJobs.length > 0) {
+      const { contactFinderQueue } = await import('../../config/queues.js');
+      await contactFinderQueue.addBulk(
+        queueJobs.map(job => ({
+          name: 'find-contact',
+          data: job,
+        }))
+      );
+    }
+
+    // Log filter summary
+    await db.query(`
+      INSERT INTO prospect_filter_log (
+        batch_id, fetch_type, total_found, auto_approved, needs_review, auto_rejected, filter_breakdown
+      )
+      VALUES ($1, 'broken_links', $2, $3, $4, $5, $6)
+    `, [batchId, allResults.length, autoApproved, needsReview, autoRejected, JSON.stringify(filterBreakdown)]);
 
     // Status will be updated by contact-finder worker when real contacts are found
 
     res.json({
       success: true,
-      message: `Fetched ${inserted} new broken link prospects`,
+      message: `Saved ${inserted} prospects (${autoApproved} auto-approved, ${needsReview} need review, ${autoRejected} auto-rejected). Contact finder queued for ${queueJobs.length} prospects.`,
+      batch_id: batchId,
       total_found: allResults.length,
       inserted: inserted,
+      auto_approved: autoApproved,
+      needs_review: needsReview,
+      auto_rejected: autoRejected,
+      filter_breakdown: filterBreakdown,
       campaign_id: campaignId,
       competitors_checked: competitors.length,
+      queued_for_contact_finding: queueJobs.length,
     });
   } catch (error) {
     logger.error('Error fetching broken links:', error);
@@ -553,9 +698,14 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
     const allResults: any[] = [];
     const seenDomains = new Set<string>();
     const urlStatuses: Array<{ url: string; isBroken: boolean; statusCode: number; backlinksFound: number }> = [];
+    const batchId = randomUUID();
+    let autoApproved = 0;
+    let needsReview = 0;
+    let autoRejected = 0;
+    const filterBreakdown: Record<string, number> = {};
 
-    // Get existing domains
-    const existingProspects = await db.query('SELECT domain FROM prospects');
+    // Get existing domains (including deleted)
+    const existingProspects = await db.query('SELECT domain FROM prospects WHERE deleted_at IS NULL');
     for (const row of existingProspects.rows) {
       seenDomains.add(row.domain.toLowerCase());
     }
@@ -638,8 +788,44 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
           for (const item of items) {
             const referringDomain = (item.main_domain || item.referring_main_domain || '').toLowerCase();
 
-            if (seenDomains.has(referringDomain)) continue;
-            if (isDomainExcluded(referringDomain)) continue;
+            // Score instead of filtering
+            const filterReasons: string[] = [];
+            let qualityScore = Math.min(50 + (item.rank || item.domain_rank || 0) * 0.5, 100);
+
+            if (seenDomains.has(referringDomain)) {
+              filterReasons.push('duplicate_domain');
+              qualityScore -= 50;
+            }
+            if (isDomainExcluded(referringDomain)) {
+              filterReasons.push('domain_blocklist');
+              qualityScore -= 40;
+            }
+
+            // Bonus for confirmed broken URLs
+            if (isBroken) {
+              qualityScore += 10;
+            } else {
+              filterReasons.push('unverified_broken_status');
+              qualityScore -= 10;
+            }
+
+            // Categorize
+            let filterStatus: 'auto_approved' | 'needs_review' | 'auto_rejected';
+            if (qualityScore >= 70) {
+              filterStatus = 'auto_approved';
+              autoApproved++;
+            } else if (qualityScore >= 30) {
+              filterStatus = 'needs_review';
+              needsReview++;
+            } else {
+              filterStatus = 'auto_rejected';
+              autoRejected++;
+            }
+
+            // Track filter reasons
+            filterReasons.forEach(reason => {
+              filterBreakdown[reason] = (filterBreakdown[reason] || 0) + 1;
+            });
 
             seenDomains.add(referringDomain);
             allResults.push({
@@ -650,6 +836,9 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
               domainRank: item.rank || item.domain_rank || 0,
               pageTitle: item.page_from_title || item.referring_page_title || '',
               isBroken: isBroken,
+              qualityScore: qualityScore,
+              filterStatus: filterStatus,
+              filterReasons: filterReasons,
             });
           }
         }
@@ -672,8 +861,8 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    // Sort by rank
-    allResults.sort((a, b) => b.domainRank - a.domainRank);
+    // Sort by quality score (best first)
+    allResults.sort((a, b) => b.qualityScore - a.qualityScore);
 
     // Get or create campaign
     let campaignId: string;
@@ -691,9 +880,11 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
       campaignId = newCampaign.rows[0].id;
     }
 
-    // Insert prospects with article recommendations
+    // Insert ALL prospects with article recommendations (no limit!)
     let inserted = 0;
-    for (const link of allResults.slice(0, 100)) {
+    const queueJobs: Array<{ prospectId: string; url: string; domain: string }> = [];
+
+    for (const link of allResults) {
       try {
         // Find matching SYB article for this broken link
         const articleMatch = await findMatchingArticle(
@@ -702,30 +893,66 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
           link.pageTitle
         );
 
-        const qualityScore = Math.min(50 + link.domainRank * 0.5, 100);
-        const brokenStatus = link.isBroken ? 'CONFIRMED BROKEN' : 'LINK STATUS UNKNOWN';
-        const description = `BROKEN LINK OPPORTUNITY (${brokenStatus})
-Broken URL: ${link.brokenUrl}
-Anchor text: "${link.anchorText}"
-Page title: ${link.pageTitle || 'N/A'}
-${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch reason: ${articleMatch.reason}` : ''}`;
+        const brokenStatus = link.isBroken ? 'VERIFIED BROKEN' : 'NOT VERIFIED';
+
+        // Clear, structured description
+        const description = JSON.stringify({
+          opportunity_type: 'broken_link',
+          referring_page: {
+            url: link.referringPageUrl,
+            title: link.pageTitle || 'Unknown',
+            domain: link.referringDomain,
+            domain_authority: link.domainRank,
+          },
+          broken_link_details: {
+            broken_url: link.brokenUrl,
+            anchor_text: link.anchorText || 'No anchor text',
+            status_code: link.isBroken ? 404 : 0,
+            verified: link.isBroken,
+            verified_at: new Date().toISOString(),
+          },
+          replacement_suggestion: articleMatch ? {
+            article_url: articleMatch.article.url,
+            article_title: articleMatch.article.title,
+            match_reason: articleMatch.reason,
+          } : null,
+        }, null, 2);
+
+        const humanReadableTitle = `${link.pageTitle || link.referringDomain} → Broken: "${link.anchorText || link.brokenUrl}"`;
 
         const result = await db.query(`
           INSERT INTO prospects (
             url, domain, title, description, domain_authority, quality_score,
+            filter_status, filter_reasons, filter_score,
+            broken_url, broken_url_status_code, broken_url_verified_at,
+            outbound_link_context,
             opportunity_type, source, status, campaign_id, approval_status,
             suggested_article_url, suggested_article_title, match_reason, created_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, 'broken_link', 'dataforseo_specific', 'new', $7, 'pending', $8, $9, $10, NOW())
-          ON CONFLICT (url) DO NOTHING
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'broken_link', 'dataforseo_verified', 'new', $14, 'pending', $15, $16, $17, NOW())
+          ON CONFLICT (url) DO UPDATE SET
+            quality_score = GREATEST(prospects.quality_score, EXCLUDED.quality_score),
+            filter_reasons = array_cat(prospects.filter_reasons, EXCLUDED.filter_reasons),
+            filter_score = GREATEST(prospects.filter_score, EXCLUDED.filter_score),
+            broken_url = EXCLUDED.broken_url,
+            broken_url_status_code = EXCLUDED.broken_url_status_code,
+            broken_url_verified_at = EXCLUDED.broken_url_verified_at,
+            updated_at = NOW()
           RETURNING id
         `, [
-          link.referringPageUrl,
-          link.referringDomain,
-          link.pageTitle || `Links to broken: ${link.anchorText}`,
-          description,
+          link.referringPageUrl,           // Where the broken link is
+          link.referringDomain,            // Domain of referring page
+          humanReadableTitle,              // Clear title
+          description,                     // Structured JSON data
           link.domainRank,
-          qualityScore,
+          link.qualityScore,
+          link.filterStatus,
+          link.filterReasons,
+          link.qualityScore,
+          link.brokenUrl,                  // The actual broken URL
+          link.isBroken ? 404 : 0,        // HTTP status code
+          new Date(),                      // When verified
+          link.anchorText,                 // Anchor text context
           campaignId,
           articleMatch?.article.url || null,
           articleMatch?.article.title || null,
@@ -735,29 +962,54 @@ ${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch 
         if (result.rows.length > 0) {
           const prospectId = result.rows[0].id;
 
-          // Queue contact finder to scrape website for REAL contacts
-          const { contactFinderQueue } = await import('../../config/queues.js');
-          await contactFinderQueue.add('find-contact', {
-            prospectId,
-            url: link.referringPageUrl,
-            domain: link.referringDomain,
-          });
+          // Only queue auto-approved and needs-review for contact finding
+          if (link.filterStatus === 'auto_approved' || link.filterStatus === 'needs_review') {
+            queueJobs.push({
+              prospectId,
+              url: link.referringPageUrl,
+              domain: link.referringDomain,
+            });
+          }
 
           inserted++;
         }
       } catch (error) {
-        // Skip duplicates
         logger.debug('Error inserting prospect:', error);
       }
     }
 
+    // Batch queue contact finder jobs
+    if (queueJobs.length > 0) {
+      const { contactFinderQueue } = await import('../../config/queues.js');
+      await contactFinderQueue.addBulk(
+        queueJobs.map(job => ({
+          name: 'find-contact',
+          data: job,
+        }))
+      );
+    }
+
+    // Log filter summary
+    await db.query(`
+      INSERT INTO prospect_filter_log (
+        batch_id, fetch_type, total_found, auto_approved, needs_review, auto_rejected, filter_breakdown
+      )
+      VALUES ($1, 'backlinks_to_url', $2, $3, $4, $5, $6)
+    `, [batchId, allResults.length, autoApproved, needsReview, autoRejected, JSON.stringify(filterBreakdown)]);
+
     res.json({
       success: true,
-      message: `Found ${allResults.length} pages linking to ${brokenUrls.length} URLs, ${inserted} new prospects added`,
+      message: `Saved ${inserted} prospects (${autoApproved} auto-approved, ${needsReview} need review, ${autoRejected} auto-rejected). Contact finder queued for ${queueJobs.length} prospects.`,
+      batch_id: batchId,
       total_found: allResults.length,
       inserted: inserted,
+      auto_approved: autoApproved,
+      needs_review: needsReview,
+      auto_rejected: autoRejected,
+      filter_breakdown: filterBreakdown,
       campaign_id: campaignId,
       url_statuses: urlStatuses,
+      queued_for_contact_finding: queueJobs.length,
     });
   } catch (error) {
     logger.error('Error finding backlinks to URLs:', error);

@@ -102,38 +102,46 @@ export class ProspectRepository extends BaseRepository<Prospect> {
     return this.update(id, { status });
   }
 
-  async findByUrl(url: string): Promise<Prospect | null> {
+  async findByUrl(url: string, includeDeleted = false): Promise<Prospect | null> {
+    const deletedFilter = includeDeleted ? '' : 'AND deleted_at IS NULL';
     return this.queryOne<Prospect>(
-      'SELECT * FROM prospects WHERE url = $1',
+      `SELECT * FROM prospects WHERE url = $1 ${deletedFilter}`,
       [url]
     );
   }
 
-  async findByDomain(domain: string): Promise<Prospect[]> {
+  async findByDomain(domain: string, includeDeleted = false): Promise<Prospect[]> {
+    const deletedFilter = includeDeleted ? '' : 'AND deleted_at IS NULL';
     return this.query<Prospect>(
-      'SELECT * FROM prospects WHERE domain = $1 ORDER BY created_at DESC',
+      `SELECT * FROM prospects WHERE domain = $1 ${deletedFilter} ORDER BY created_at DESC`,
       [domain]
     );
   }
 
-  async findByStatus(status: ProspectStatus, limit = 100): Promise<Prospect[]> {
+  async findByStatus(status: ProspectStatus, limit = 100, includeDeleted = false): Promise<Prospect[]> {
+    const deletedFilter = includeDeleted ? '' : 'AND deleted_at IS NULL';
     return this.query<Prospect>(
-      'SELECT * FROM prospects WHERE status = $1 ORDER BY quality_score DESC NULLS LAST LIMIT $2',
+      `SELECT * FROM prospects WHERE status = $1 ${deletedFilter} ORDER BY quality_score DESC NULLS LAST LIMIT $2`,
       [status, limit]
     );
   }
 
-  async findByCampaign(campaignId: string): Promise<Prospect[]> {
+  async findByCampaign(campaignId: string, includeDeleted = false): Promise<Prospect[]> {
+    const deletedFilter = includeDeleted ? '' : 'AND deleted_at IS NULL';
     return this.query<Prospect>(
-      'SELECT * FROM prospects WHERE campaign_id = $1 ORDER BY created_at DESC',
+      `SELECT * FROM prospects WHERE campaign_id = $1 ${deletedFilter} ORDER BY created_at DESC`,
       [campaignId]
     );
   }
 
-  async findFiltered(filters: ProspectFilters, limit = 100, offset = 0): Promise<Prospect[]> {
-    const conditions: string[] = [];
+  async findFiltered(filters: ProspectFilters, limit = 100, offset = 0, includeDeleted = false): Promise<Prospect[]> {
+    const conditions: string[] = ['deleted_at IS NULL'];
     const values: unknown[] = [];
     let paramIndex = 1;
+
+    if (includeDeleted) {
+      conditions.pop(); // Remove deleted_at filter
+    }
 
     if (filters.status) {
       conditions.push(`status = $${paramIndex++}`);
@@ -192,27 +200,29 @@ export class ProspectRepository extends BaseRepository<Prospect> {
     return result?.exists || false;
   }
 
-  async getStats(): Promise<{
+  async getStats(includeDeleted = false): Promise<{
     total: number;
     by_status: Record<string, number>;
     by_opportunity_type: Record<string, number>;
     by_approval_status: Record<string, number>;
   }> {
-    const [total, byStatus, byType, byApproval] = await Promise.all([
-      this.count(),
+    const deletedFilter = includeDeleted ? '' : 'WHERE deleted_at IS NULL';
+
+    const [totalResult, byStatus, byType, byApproval] = await Promise.all([
+      this.queryOne<{ count: string }>(`SELECT COUNT(*) as count FROM prospects ${deletedFilter}`),
       this.query<{ status: string; count: string }>(`
-        SELECT status, COUNT(*) as count FROM prospects GROUP BY status
+        SELECT status, COUNT(*) as count FROM prospects ${deletedFilter} GROUP BY status
       `),
       this.query<{ opportunity_type: string; count: string }>(`
-        SELECT opportunity_type, COUNT(*) as count FROM prospects GROUP BY opportunity_type
+        SELECT opportunity_type, COUNT(*) as count FROM prospects ${deletedFilter} GROUP BY opportunity_type
       `),
       this.query<{ approval_status: string; count: string }>(`
-        SELECT approval_status, COUNT(*) as count FROM prospects GROUP BY approval_status
+        SELECT approval_status, COUNT(*) as count FROM prospects ${deletedFilter} GROUP BY approval_status
       `),
     ]);
 
     return {
-      total,
+      total: parseInt(totalResult?.count || '0'),
       by_status: Object.fromEntries(byStatus.map(r => [r.status, parseInt(r.count)])),
       by_opportunity_type: Object.fromEntries(byType.map(r => [r.opportunity_type, parseInt(r.count)])),
       by_approval_status: Object.fromEntries(byApproval.map(r => [r.approval_status, parseInt(r.count)])),
@@ -226,7 +236,7 @@ export class ProspectRepository extends BaseRepository<Prospect> {
   async findGrouped(approvalStatus: ApprovalStatus = 'pending'): Promise<GroupedProspects> {
     const prospects = await this.query<Prospect>(`
       SELECT * FROM prospects
-      WHERE approval_status = $1
+      WHERE approval_status = $1 AND deleted_at IS NULL
       ORDER BY quality_score DESC NULLS LAST, created_at DESC
     `, [approvalStatus]);
 
@@ -240,7 +250,7 @@ export class ProspectRepository extends BaseRepository<Prospect> {
   async findByApprovalStatus(approvalStatus: ApprovalStatus, limit = 100, offset = 0): Promise<Prospect[]> {
     return this.query<Prospect>(`
       SELECT * FROM prospects
-      WHERE approval_status = $1
+      WHERE approval_status = $1 AND deleted_at IS NULL
       ORDER BY quality_score DESC NULLS LAST, created_at DESC
       LIMIT $2 OFFSET $3
     `, [approvalStatus, limit, offset]);
@@ -253,7 +263,7 @@ export class ProspectRepository extends BaseRepository<Prospect> {
   async findCompleted(limit = 100, offset = 0): Promise<Prospect[]> {
     return this.query<Prospect>(`
       SELECT * FROM prospects
-      WHERE outcome_tag IS NOT NULL
+      WHERE outcome_tag IS NOT NULL AND deleted_at IS NULL
       ORDER BY updated_at DESC
       LIMIT $1 OFFSET $2
     `, [limit, offset]);
@@ -300,10 +310,147 @@ export class ProspectRepository extends BaseRepository<Prospect> {
   async findByNiche(niche: string, limit = 100): Promise<Prospect[]> {
     return this.query<Prospect>(`
       SELECT * FROM prospects
-      WHERE niche = $1
+      WHERE niche = $1 AND deleted_at IS NULL
       ORDER BY quality_score DESC NULLS LAST, created_at DESC
       LIMIT $2
     `, [niche, limit]);
+  }
+
+  // ============================================
+  // SOFT DELETE METHODS
+  // ============================================
+
+  /**
+   * Soft delete a prospect (move to trash)
+   */
+  async softDelete(id: string, reason?: string, deletedBy?: string): Promise<Prospect | null> {
+    return this.queryOne<Prospect>(`
+      UPDATE prospects
+      SET deleted_at = NOW(),
+          deleted_reason = $2,
+          deleted_by = $3
+      WHERE id = $1 AND deleted_at IS NULL
+      RETURNING *
+    `, [id, reason || null, deletedBy || null]);
+  }
+
+  /**
+   * Bulk soft delete prospects
+   */
+  async bulkSoftDelete(ids: string[], reason?: string, deletedBy?: string): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    const result = await this.query<{ id: string }>(`
+      UPDATE prospects
+      SET deleted_at = NOW(),
+          deleted_reason = $1,
+          deleted_by = $2
+      WHERE id = ANY($3::uuid[]) AND deleted_at IS NULL
+      RETURNING id
+    `, [reason || null, deletedBy || null, ids]);
+
+    return result.length;
+  }
+
+  /**
+   * Restore a prospect from trash
+   */
+  async restore(id: string): Promise<Prospect | null> {
+    return this.queryOne<Prospect>(`
+      UPDATE prospects
+      SET deleted_at = NULL,
+          deleted_reason = NULL,
+          deleted_by = NULL
+      WHERE id = $1 AND deleted_at IS NOT NULL
+      RETURNING *
+    `, [id]);
+  }
+
+  /**
+   * Bulk restore prospects from trash
+   */
+  async bulkRestore(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+
+    const result = await this.query<{ id: string }>(`
+      UPDATE prospects
+      SET deleted_at = NULL,
+          deleted_reason = NULL,
+          deleted_by = NULL
+      WHERE id = ANY($1::uuid[]) AND deleted_at IS NOT NULL
+      RETURNING id
+    `, [ids]);
+
+    return result.length;
+  }
+
+  /**
+   * Get trash (deleted prospects)
+   */
+  async findTrash(limit = 100, offset = 0): Promise<Prospect[]> {
+    return this.query<Prospect>(`
+      SELECT * FROM prospects
+      WHERE deleted_at IS NOT NULL
+      ORDER BY deleted_at DESC
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+  }
+
+  /**
+   * Count prospects in trash
+   */
+  async countTrash(): Promise<number> {
+    const result = await this.queryOne<{ count: string }>(`
+      SELECT COUNT(*) as count FROM prospects WHERE deleted_at IS NOT NULL
+    `);
+    return parseInt(result?.count || '0');
+  }
+
+  /**
+   * Permanently delete a prospect (hard delete)
+   */
+  async permanentDelete(id: string): Promise<boolean> {
+    const result = await this.query<{ id: string }>(`
+      DELETE FROM prospects WHERE id = $1 RETURNING id
+    `, [id]);
+    return result.length > 0;
+  }
+
+  /**
+   * Cleanup old trash (delete prospects older than 90 days in trash)
+   */
+  async cleanupOldTrash(): Promise<number> {
+    const result = await this.query<{ id: string }>(`
+      DELETE FROM prospects
+      WHERE deleted_at IS NOT NULL
+        AND deleted_at < (NOW() - INTERVAL '90 days')
+      RETURNING id
+    `);
+    return result.length;
+  }
+
+  /**
+   * Find prospects ready for permanent deletion (90+ days in trash)
+   */
+  async findReadyForPermanentDeletion(limit = 100): Promise<Prospect[]> {
+    return this.query<Prospect>(`
+      SELECT * FROM prospects
+      WHERE deleted_at IS NOT NULL
+        AND deleted_at < (NOW() - INTERVAL '90 days')
+      ORDER BY deleted_at ASC
+      LIMIT $1
+    `, [limit]);
+  }
+
+  /**
+   * Override findById to exclude deleted by default
+   */
+  async findById(id: string, includeDeleted = false): Promise<Prospect | null> {
+    const deletedFilter = includeDeleted ? '' : 'AND deleted_at IS NULL';
+    return this.queryOne<Prospect>(
+      `SELECT * FROM prospects WHERE id = $1 ${deletedFilter}`,
+      [id]
+    );
   }
 }
 

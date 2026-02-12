@@ -3,8 +3,10 @@ import * as cheerio from 'cheerio';
 import redis from '../config/redis.js';
 import { QUEUE_NAMES, emailGeneratorQueue } from '../config/queues.js';
 import { contactRepository, prospectRepository, blocklistRepository, auditRepository } from '../db/repositories/index.js';
+import { db } from '../db/index.js';
 import { ContactConfidenceTier } from '../types/index.js';
 import logger from '../utils/logger.js';
+import { findContactsForProspect } from '../services/contact-intelligence.service.js';
 
 export interface ContactFinderJobData {
   prospectId: string;
@@ -238,11 +240,11 @@ function generateEmailPatterns(domain: string): Array<{ email: string; name: str
   }));
 }
 
-// Worker processor
+// Worker processor with multi-source intelligence
 async function processContactFinderJob(job: Job<ContactFinderJobData>): Promise<{ found: number; prospectId: string }> {
   const { prospectId, url, domain } = job.data;
 
-  logger.info(`Finding contacts for: ${domain}`, { jobId: job.id, prospectId });
+  logger.info(`🔍 Finding contacts for: ${domain}`, { jobId: job.id, prospectId });
 
   // Get prospect
   const prospect = await prospectRepository.findById(prospectId);
@@ -250,42 +252,95 @@ async function processContactFinderJob(job: Job<ContactFinderJobData>): Promise<
     throw new Error(`Prospect not found: ${prospectId}`);
   }
 
-  // Try scraping first
-  let contacts = await findContactsByScraping(domain, url);
+  // Step 1: Try enhanced web scraping first (free)
+  logger.debug(`Step 1: Scraping ${domain} for contacts...`);
+  const scrapedContacts = await findContactsByScraping(domain, url);
 
-  // If no contacts found, use pattern guessing
-  if (contacts.length === 0) {
-    contacts = generateEmailPatterns(domain);
-  }
+  // Step 2: Use multi-source intelligence service
+  logger.debug(`Step 2: Using multi-source intelligence...`);
+  const intelligenceResult = await findContactsForProspect(domain, url, scrapedContacts);
 
   let savedCount = 0;
+  let totalCost = intelligenceResult.total_cost_cents;
 
-  for (const contact of contacts) {
-    // Check blocklist
-    if (await blocklistRepository.isEmailBlocked(contact.email)) {
-      logger.debug(`Skipping blocked email: ${contact.email}`);
-      continue;
+  // Step 3: Save selected high-quality contacts (1-2 instead of 3)
+  if (intelligenceResult.contacts.length > 0) {
+    for (const contact of intelligenceResult.contacts) {
+      // Check blocklist
+      if (await blocklistRepository.isEmailBlocked(contact.email)) {
+        logger.debug(`Skipping blocked email: ${contact.email}`);
+        continue;
+      }
+
+      try {
+        const saved = await contactRepository.create({
+          prospect_id: prospectId,
+          email: contact.email,
+          name: contact.name,
+          role: contact.title || contact.role,
+          title: contact.title,
+          confidence_tier: contact.confidence_tier as ContactConfidenceTier,
+          source: contact.source,
+          linkedin_url: contact.linkedin_url,
+          verified: contact.verification_status === 'valid',
+          confidence_score: contact.confidence_score,
+          verification_status: contact.verification_status,
+          source_metadata: contact.source_metadata,
+          api_cost_cents: 0, // Individual contact cost (will be updated below)
+        });
+
+        // Log API usage
+        await db.query(`
+          INSERT INTO contact_api_logs (
+            prospect_id, contact_id, api_provider, endpoint,
+            request_data, response_data, cost_cents, success, cached, created_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, NOW())
+        `, [
+          prospectId,
+          saved.id,
+          'multi_source_intelligence',
+          'find_contacts',
+          JSON.stringify({ domain, url }),
+          JSON.stringify({
+            sources_used: intelligenceResult.sources_used,
+            total_found: intelligenceResult.total_found,
+          }),
+          totalCost,
+          intelligenceResult.cached,
+        ]);
+
+        await auditRepository.logContactFound(saved.id, prospectId);
+        savedCount++;
+
+        logger.info(`✅ Saved contact: ${contact.email} (${contact.confidence_tier}, score: ${contact.confidence_score})`);
+      } catch (error) {
+        logger.debug(`Failed to save contact: ${contact.email}`, error);
+      }
     }
+  } else {
+    // Fallback: Use pattern-based emails only if no other contacts found
+    logger.warn(`No contacts found via intelligence service, using pattern fallback for ${domain}`);
+    const patternContacts = generateEmailPatterns(domain);
 
-    const tier = getConfidenceTier(contact.source, !!contact.name);
+    for (const contact of patternContacts.slice(0, 2)) {
+      if (await blocklistRepository.isEmailBlocked(contact.email)) continue;
 
-    try {
-      const saved = await contactRepository.create({
-        prospect_id: prospectId,
-        email: contact.email,
-        name: contact.name,
-        confidence_tier: tier,
-        source: contact.source,
-      });
+      try {
+        const saved = await contactRepository.create({
+          prospect_id: prospectId,
+          email: contact.email,
+          name: contact.name,
+          confidence_tier: 'D' as ContactConfidenceTier,
+          source: 'pattern',
+          confidence_score: 10,
+        });
 
-      await auditRepository.logContactFound(saved.id, prospectId);
-      savedCount++;
-
-      // Only save top 3 contacts per prospect
-      if (savedCount >= 3) break;
-    } catch (error) {
-      // Likely duplicate, skip
-      logger.debug(`Failed to save contact: ${contact.email}`, error);
+        await auditRepository.logContactFound(saved.id, prospectId);
+        savedCount++;
+      } catch (error) {
+        logger.debug(`Failed to save pattern contact: ${contact.email}`, error);
+      }
     }
   }
 
@@ -293,8 +348,9 @@ async function processContactFinderJob(job: Job<ContactFinderJobData>): Promise<
   if (savedCount > 0) {
     await prospectRepository.updateStatus(prospectId, 'contact_found');
 
-    // DO NOT auto-queue email generation - user will manually select contact
-    logger.info(`Found ${savedCount} contacts for prospect ${prospectId}. User will manually select which to use.`);
+    logger.info(`✅ Found ${savedCount} contacts for ${domain} (cost: $${(totalCost / 100).toFixed(2)}, sources: ${intelligenceResult.sources_used.join(', ')})`);
+  } else {
+    logger.warn(`❌ No contacts found for ${domain}`);
   }
 
   logger.info(`Contact finding completed: ${savedCount} contacts saved`, {

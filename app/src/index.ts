@@ -15,6 +15,7 @@ import { createEmailSenderWorker } from './workers/email-sender.worker.js';
 import { createFollowupWorker } from './workers/followup.worker.js';
 import { createLinkCheckerWorker } from './workers/link-checker.worker.js';
 import { createResponseClassifierWorker } from './workers/response-classifier.worker.js';
+import { startTrashCleanupScheduler } from './workers/trash-cleanup.worker.js';
 
 const app = express();
 
@@ -129,6 +130,13 @@ async function start() {
       startWorkers();
     } catch (workerError) {
       logger.warn('Some workers failed to start:', workerError);
+    }
+
+    // Start trash cleanup scheduler (daily at 2:00 AM)
+    try {
+      startTrashCleanupScheduler();
+    } catch (schedulerError) {
+      logger.warn('Trash cleanup scheduler failed to start:', schedulerError);
     }
 
     // Start server (explicitly bind to 0.0.0.0 for Railway)
