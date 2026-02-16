@@ -417,15 +417,17 @@ export default function ProspectDetail({
         </div>
       )}
 
-      {/* Suggested Article (for broken link prospects) */}
-      {isBrokenLink && prospect.suggested_article_url && (
+      {/* Suggested Article (for any prospect with a match) */}
+      {prospect.suggested_article_url && (
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
           <div className="flex items-start gap-2">
             <svg className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="flex-1">
-              <div className="text-sm font-medium text-green-800">Suggested Replacement Article</div>
+              <div className="text-sm font-medium text-green-800">
+                {isBrokenLink ? 'Suggested Replacement Article' : 'Suggested SYB Article to Cite'}
+              </div>
               <a
                 href={prospect.suggested_article_url}
                 target="_blank"

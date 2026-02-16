@@ -324,27 +324,45 @@ router.post('/research-citations', async (req: Request, res: Response) => {
 
     for (const prospect of allProspects) {
       try {
+        // Find matching SYB article based on keyword + title context
+        const articleMatch = await findMatchingArticle(
+          prospect.keyword || '',
+          prospect.url || '',
+          prospect.title
+        );
+
+        // Boost score if we found a good article match
+        let finalScore = prospect.score;
+        if (articleMatch) finalScore = Math.min(100, finalScore + 10);
+
         const result = await db.query(`
           INSERT INTO prospects (
             url, domain, title, quality_score,
             filter_status, filter_reasons, filter_score,
+            suggested_article_url, suggested_article_title, match_reason,
             opportunity_type, source, status, campaign_id, approval_status, created_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, 'research_citation', 'seo_command_center', 'new', $8, 'pending', NOW())
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'research_citation', 'seo_command_center', 'new', $11, 'pending', NOW())
           ON CONFLICT (url) DO UPDATE SET
             quality_score = GREATEST(prospects.quality_score, EXCLUDED.quality_score),
             filter_reasons = array_cat(prospects.filter_reasons, EXCLUDED.filter_reasons),
             filter_score = GREATEST(prospects.filter_score, EXCLUDED.filter_score),
+            suggested_article_url = COALESCE(EXCLUDED.suggested_article_url, prospects.suggested_article_url),
+            suggested_article_title = COALESCE(EXCLUDED.suggested_article_title, prospects.suggested_article_title),
+            match_reason = COALESCE(EXCLUDED.match_reason, prospects.match_reason),
             updated_at = NOW()
           RETURNING id
         `, [
           prospect.url,
           prospect.domain,
           prospect.title,
-          prospect.score,
+          finalScore,
           prospect.filterStatus,
           prospect.filterReasons,
-          prospect.score,
+          finalScore,
+          articleMatch?.article.url || null,
+          articleMatch?.article.title || null,
+          articleMatch?.reason || null,
           campaignId
         ]);
 
