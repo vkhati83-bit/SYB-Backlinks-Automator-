@@ -506,36 +506,66 @@ router.post('/broken-links', async (req: Request, res: Response) => {
           for (const item of items) {
             // DataForSEO uses domain_from for the referring domain
             const referringDomain = (item.domain_from || '').toLowerCase().replace(/^www\./, '');
+            const competitorDomain = competitor.toLowerCase().replace(/^www\./, '');
 
-            // Score instead of filtering
-            const filterReasons: string[] = [];
-            const normalizedDA = normalizeRankToDA(item.rank);
-            let qualityScore = Math.min(50 + normalizedDA * 0.5, 100);
+            // HARD FILTER: Skip the competitor's own domain (internal links are useless)
+            if (referringDomain === competitorDomain || referringDomain.endsWith('.' + competitorDomain)) {
+              filterBreakdown['competitor_internal'] = (filterBreakdown['competitor_internal'] || 0) + 1;
+              continue;
+            }
 
+            // HARD FILTER: Skip already-seen domains
             if (seenDomains.has(referringDomain)) {
-              filterReasons.push('duplicate_domain');
-              qualityScore -= 50;
-            }
-            if (isDomainExcluded(referringDomain)) {
-              filterReasons.push('domain_blocklist');
-              qualityScore -= 40;
+              filterBreakdown['duplicate_domain'] = (filterBreakdown['duplicate_domain'] || 0) + 1;
+              continue;
             }
 
-            // Skip spam (but track it)
+            // HARD FILTER: Skip blocklisted domains (edu, gov, competitors, social media, etc.)
+            if (isDomainExcluded(referringDomain)) {
+              filterBreakdown['domain_blocklist'] = (filterBreakdown['domain_blocklist'] || 0) + 1;
+              continue;
+            }
+
+            // HARD FILTER: Skip spam domains
             if (referringDomain.includes('shareasale') ||
                 referringDomain.includes('klaviyo') ||
                 referringDomain.includes('mailchimp') ||
                 referringDomain.includes('myshopify')) {
-              filterReasons.push('spam_domain');
-              qualityScore -= 60;
+              filterBreakdown['spam_domain'] = (filterBreakdown['spam_domain'] || 0) + 1;
+              continue;
             }
+
+            // --- Score the viable prospect ---
+            const filterReasons: string[] = [];
+            const normalizedDA = normalizeRankToDA(item.rank);
+            // Base: DA contributes up to 50 points
+            let qualityScore = Math.min(normalizedDA, 50);
+
+            // Dofollow bonus (+15)
+            if (item.dofollow) qualityScore += 15;
+
+            // Anchor text / page title relevance to health/EMF (+20)
+            const textContext = `${item.anchor || ''} ${item.page_from_title || ''}`;
+            if (hasHealthSignal(textContext)) {
+              qualityScore += 20;
+            } else {
+              filterReasons.push('no_health_keywords');
+            }
+
+            // Preferred domain type bonus (+10)
+            if (isPreferredDomain(referringDomain)) qualityScore += 10;
+
+            // Blog signal bonus (+5)
+            if (referringDomain.includes('blog') || textContext.toLowerCase().includes('blog')) qualityScore += 5;
+
+            qualityScore = Math.max(0, Math.min(100, qualityScore));
 
             // Categorize
             let filterStatus: 'auto_approved' | 'needs_review' | 'auto_rejected';
-            if (qualityScore >= 70) {
+            if (qualityScore >= 60) {
               filterStatus = 'auto_approved';
               autoApproved++;
-            } else if (qualityScore >= 30) {
+            } else if (qualityScore >= 25) {
               filterStatus = 'needs_review';
               needsReview++;
             } else {
@@ -613,6 +643,10 @@ router.post('/broken-links', async (req: Request, res: Response) => {
           link.pageTitle
         );
 
+        // Boost score if we found a matching SYB article
+        let finalScore = link.qualityScore;
+        if (articleMatch) finalScore = Math.min(100, finalScore + 10);
+
         const description = `BROKEN LINK OPPORTUNITY
 Broken URL: ${link.brokenUrl}
 Anchor text: "${link.anchorText}"
@@ -647,10 +681,10 @@ ${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch 
           link.pageTitle || `Broken link: ${link.anchorText}`,
           description,
           link.domainRank,
-          link.qualityScore,
+          finalScore,
           link.filterStatus,
           link.filterReasons,
-          link.qualityScore,
+          finalScore,
           link.brokenUrl || null,
           link.anchorText || null,
           link.pageAuthority,
@@ -844,37 +878,68 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
           const items = data.tasks?.[0]?.result?.[0]?.items || [];
           backlinksFound = items.length;
 
+          // Extract domain from the target URL to skip internal links
+          let targetDomain = '';
+          try {
+            targetDomain = new URL(targetUrl).hostname.toLowerCase().replace(/^www\./, '');
+          } catch { /* ignore parse errors */ }
+
           for (const item of items) {
             const referringDomain = (item.main_domain || item.referring_main_domain || '').toLowerCase();
 
-            // Score instead of filtering
+            // HARD FILTER: Skip if referring domain IS the target domain (internal links)
+            if (targetDomain && (referringDomain === targetDomain || referringDomain.endsWith('.' + targetDomain))) {
+              filterBreakdown['target_internal'] = (filterBreakdown['target_internal'] || 0) + 1;
+              continue;
+            }
+
+            // HARD FILTER: Skip already-seen domains
+            if (seenDomains.has(referringDomain)) {
+              filterBreakdown['duplicate_domain'] = (filterBreakdown['duplicate_domain'] || 0) + 1;
+              continue;
+            }
+
+            // HARD FILTER: Skip blocklisted domains
+            if (isDomainExcluded(referringDomain)) {
+              filterBreakdown['domain_blocklist'] = (filterBreakdown['domain_blocklist'] || 0) + 1;
+              continue;
+            }
+
+            // --- Score the viable prospect ---
             const filterReasons: string[] = [];
             const normalizedDA = normalizeRankToDA(item.rank || item.domain_rank);
-            let qualityScore = Math.min(50 + normalizedDA * 0.5, 100);
+            // Base: DA contributes up to 50 points
+            let qualityScore = Math.min(normalizedDA, 50);
 
-            if (seenDomains.has(referringDomain)) {
-              filterReasons.push('duplicate_domain');
-              qualityScore -= 50;
-            }
-            if (isDomainExcluded(referringDomain)) {
-              filterReasons.push('domain_blocklist');
-              qualityScore -= 40;
-            }
-
-            // Bonus for confirmed broken URLs
+            // Verified broken bonus (+15)
             if (isBroken) {
-              qualityScore += 10;
+              qualityScore += 15;
             } else {
               filterReasons.push('unverified_broken_status');
-              qualityScore -= 10;
             }
+
+            // Dofollow bonus (+15)
+            if (item.dofollow) qualityScore += 15;
+
+            // Anchor text / page title relevance (+20)
+            const textContext = `${item.anchor || ''} ${item.page_from_title || item.referring_page_title || ''}`;
+            if (hasHealthSignal(textContext)) {
+              qualityScore += 20;
+            } else {
+              filterReasons.push('no_health_keywords');
+            }
+
+            // Preferred domain type bonus (+10)
+            if (isPreferredDomain(referringDomain)) qualityScore += 10;
+
+            qualityScore = Math.max(0, Math.min(100, qualityScore));
 
             // Categorize
             let filterStatus: 'auto_approved' | 'needs_review' | 'auto_rejected';
-            if (qualityScore >= 70) {
+            if (qualityScore >= 60) {
               filterStatus = 'auto_approved';
               autoApproved++;
-            } else if (qualityScore >= 30) {
+            } else if (qualityScore >= 25) {
               filterStatus = 'needs_review';
               needsReview++;
             } else {
@@ -957,6 +1022,10 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
           link.pageTitle
         );
 
+        // Boost score if we found a matching SYB article
+        let finalScore = link.qualityScore;
+        if (articleMatch) finalScore = Math.min(100, finalScore + 10);
+
         const brokenStatus = link.isBroken ? 'VERIFIED BROKEN' : 'NOT VERIFIED';
 
         // Clear, structured description
@@ -1014,10 +1083,10 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
           humanReadableTitle,              // Clear title
           description,                     // Structured JSON data
           link.domainRank,
-          link.qualityScore,
+          finalScore,
           link.filterStatus,
           link.filterReasons,
-          link.qualityScore,
+          finalScore,
           link.brokenUrl,                  // The actual broken URL
           link.isBroken ? 404 : 0,        // HTTP status code
           new Date(),                      // When verified

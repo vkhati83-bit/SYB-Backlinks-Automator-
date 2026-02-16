@@ -8,13 +8,13 @@ import type { Prospect } from '../../lib/types';
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
 export default function BrokenLinksPage() {
-  const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'completed'>('pending');
+  const [activeTab, setActiveTab] = useState<'new' | 'pending' | 'approved' | 'completed'>('new');
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [counts, setCounts] = useState({ pending: 0, approved: 0, completed: 0 });
+  const [counts, setCounts] = useState({ new: 0, pending: 0, approved: 0, completed: 0 });
   const [fetching, setFetching] = useState(false);
   const [fetchResult, setFetchResult] = useState<{ success: boolean; message: string } | null>(null);
   const [showFetchModal, setShowFetchModal] = useState(false);
@@ -22,9 +22,20 @@ export default function BrokenLinksPage() {
   const fetchProspects = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `${API_BASE}/prospects?opportunity_type=broken_link&approval_status=${activeTab === 'completed' ? 'approved' : activeTab}`
-      );
+      // "new" tab: status=new (freshly fetched, never reviewed)
+      // "pending" tab: approval_status=pending, status != new (reviewed but not decided)
+      // "approved" tab: approval_status=approved, no outcome
+      // "completed" tab: approval_status=approved, has outcome
+      let url: string;
+      if (activeTab === 'new') {
+        url = `${API_BASE}/prospects?opportunity_type=broken_link&status=new`;
+      } else if (activeTab === 'completed') {
+        url = `${API_BASE}/prospects?opportunity_type=broken_link&approval_status=approved`;
+      } else {
+        url = `${API_BASE}/prospects?opportunity_type=broken_link&approval_status=${activeTab}`;
+      }
+
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         let filtered = data.prospects || [];
@@ -45,11 +56,13 @@ export default function BrokenLinksPage() {
 
   const fetchCounts = useCallback(async () => {
     try {
-      const [pendingRes, approvedRes] = await Promise.all([
+      const [newRes, pendingRes, approvedRes] = await Promise.all([
+        fetch(`${API_BASE}/prospects?opportunity_type=broken_link&status=new`),
         fetch(`${API_BASE}/prospects?opportunity_type=broken_link&approval_status=pending`),
         fetch(`${API_BASE}/prospects?opportunity_type=broken_link&approval_status=approved`),
       ]);
 
+      const newData = newRes.ok ? await newRes.json() : { prospects: [] };
       const pendingData = pendingRes.ok ? await pendingRes.json() : { prospects: [] };
       const approvedData = approvedRes.ok ? await approvedRes.json() : { prospects: [] };
 
@@ -58,6 +71,7 @@ export default function BrokenLinksPage() {
       const approved = approvedProspects.filter((p: Prospect) => p.outcome_tag === null).length;
 
       setCounts({
+        new: newData.prospects?.length || 0,
         pending: pendingData.prospects?.length || 0,
         approved,
         completed,
@@ -185,6 +199,7 @@ export default function BrokenLinksPage() {
   };
 
   const tabs = [
+    { id: 'new' as const, label: 'New', count: counts.new },
     { id: 'pending' as const, label: 'Pending Review', count: counts.pending },
     { id: 'approved' as const, label: 'Ready to Send', count: counts.approved },
     { id: 'completed' as const, label: 'Completed', count: counts.completed },
@@ -294,7 +309,7 @@ export default function BrokenLinksPage() {
         <div className="col-span-5">
           <div className="card p-4">
             {/* Select All */}
-            {activeTab === 'pending' && prospects.length > 0 && (
+            {(activeTab === 'new' || activeTab === 'pending') && prospects.length > 0 && (
               <div className="flex items-center justify-between mb-4 pb-3 border-b">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -331,7 +346,7 @@ export default function BrokenLinksPage() {
                     `}
                   >
                     <div className="flex items-start gap-3">
-                      {activeTab === 'pending' && (
+                      {(activeTab === 'new' || activeTab === 'pending') && (
                         <input
                           type="checkbox"
                           checked={checkedIds.has(prospect.id)}

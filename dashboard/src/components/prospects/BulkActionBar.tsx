@@ -6,7 +6,7 @@ interface BulkActionBarProps {
   onReject: () => void;
   onClear: () => void;
   isLoading?: boolean;
-  activeTab: 'pending' | 'approved' | 'completed';
+  activeTab: 'new' | 'pending' | 'approved' | 'completed';
 }
 
 export default function BulkActionBar({
