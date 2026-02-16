@@ -1,23 +1,6 @@
 'use client';
 
-interface Prospect {
-  id: string;
-  url: string;
-  domain: string;
-  title: string | null;
-  description: string | null;
-  domain_authority: number | null;
-  quality_score: number | null;
-  opportunity_type: string;
-  status: string;
-  niche: string | null;
-  approval_status: string;
-  outcome_tag: string | null;
-  contact_count: number;
-  suggested_article_url?: string | null;
-  suggested_article_title?: string | null;
-  match_reason?: string | null;
-}
+import type { Prospect } from '../../lib/types';
 
 interface ProspectCardProps {
   prospect: Prospect;

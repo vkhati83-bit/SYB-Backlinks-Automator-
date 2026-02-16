@@ -55,6 +55,12 @@ const EXCLUDE_DOMAINS = [
   'apps.apple.com', 'play.google.com',
   'stackexchange.com', 'stackoverflow.com', 'answers.com',
   'aarp.org', 'cancer.org.au', 'cancerresearchuk.org',
+  // Link shorteners & affiliate platforms
+  'fas.st', 'bit.ly', 'tinyurl.com', 'goo.gl', 't.co', 'ow.ly',
+  'rebrand.ly', 'linktr.ee', 'lnk.to', 'shorte.st',
+  'go2l.ink', 'shrsl.com', 'avantlink.com', 'anrdoezrs.net', 'jdoqocy.com',
+  'tkqlhce.com', 'dpbolvw.net', 'kqzyfj.com', 'pntra.com', 'pntrac.com',
+  'pntrs.com', 'commission-junction.com', 'cj.com',
 ];
 
 const PREFER_DOMAINS = [
@@ -62,6 +68,12 @@ const PREFER_DOMAINS = [
   'functional', 'integrative', 'lifestyle', 'living', 'mindful', 'organic',
   'eco', 'green', 'detox', 'emf', 'radiation', 'safety',
 ];
+
+// DataForSEO rank is 0-1000 (InLink Rank), not 0-100 DA. Normalize to 0-100.
+function normalizeRankToDA(rank: number | undefined | null): number {
+  if (!rank) return 0;
+  return Math.round(Math.min(100, rank / 10));
+}
 
 function isDomainExcluded(domain: string): boolean {
   const lower = domain.toLowerCase();
@@ -183,6 +195,13 @@ router.post('/research-citations', async (req: Request, res: Response) => {
 
     query += ` ORDER BY position ASC`;
 
+    // Fetch MORE than requested to account for filtering out competitors/duplicates/spam
+    const maxResults = Math.min(Math.max(1, parseInt(limit) || 100), 1000);
+    const fetchMultiplier = 10; // Fetch 10x to ensure enough after filtering
+    const dbLimit = Math.min(maxResults * fetchMultiplier, 5000);
+    query += ` LIMIT $${params.length + 1}`;
+    params.push(dbLimit);
+
     const result = await seoDb.query(query, params);
 
     // Score ALL prospects (no data loss!)
@@ -200,26 +219,37 @@ router.post('/research-citations', async (req: Request, res: Response) => {
       seenDomains.add(row.domain.toLowerCase().replace('www.', ''));
     }
 
+    let skippedBlocklist = 0;
+    let skippedDuplicate = 0;
+    let skippedExcludeSignal = 0;
+
     for (const row of result.rows) {
       const domain = (row.domain || '').toLowerCase().replace('www.', '');
       const text = `${row.keyword || ''} ${row.title || ''}`;
 
-      // Score instead of filtering
+      // HARD FILTER: Skip blocklisted domains entirely (competitors, spam, etc.)
+      if (isDomainExcluded(domain)) {
+        skippedBlocklist++;
+        filterBreakdown['domain_blocklist'] = (filterBreakdown['domain_blocklist'] || 0) + 1;
+        continue;
+      }
+
+      // HARD FILTER: Skip duplicates entirely
+      if (seenDomains.has(domain)) {
+        skippedDuplicate++;
+        filterBreakdown['duplicate_domain'] = (filterBreakdown['duplicate_domain'] || 0) + 1;
+        continue;
+      }
+
+      // Score the prospect
       const filterReasons: string[] = [];
       let qualityScore = scoreProspect(row);
 
-      // Apply penalties but don't discard
-      if (seenDomains.has(domain)) {
-        filterReasons.push('duplicate_domain');
-        qualityScore -= 50;
-      }
-      if (isDomainExcluded(domain)) {
-        filterReasons.push('domain_blocklist');
-        qualityScore -= 40;
-      }
+      // Soft penalties (reduce score but still include)
       if (hasExcludeSignal(text)) {
         filterReasons.push('exclude_keywords');
         qualityScore -= 30;
+        skippedExcludeSignal++;
       }
       if (!hasHealthSignal(text)) {
         filterReasons.push('no_health_keywords');
@@ -259,7 +289,12 @@ router.post('/research-citations', async (req: Request, res: Response) => {
         filterStatus: filterStatus,
         filterReasons: filterReasons,
       });
+
+      // Stop once we have enough viable prospects
+      if (allProspects.length >= maxResults) break;
     }
+
+    logger.info(`Research citations filtering: ${result.rows.length} fetched from DB, ${skippedBlocklist} blocklisted, ${skippedDuplicate} duplicates, ${allProspects.length} viable`);
 
     // Sort by score (best first)
     allProspects.sort((a, b) => b.score - a.score);
@@ -354,9 +389,12 @@ router.post('/research-citations', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: `Saved ${inserted} prospects (${autoApproved} auto-approved, ${needsReview} need review, ${autoRejected} auto-rejected). Contact finder queued for ${queueJobs.length} prospects.`,
+      message: `Saved ${inserted} prospects (${autoApproved} auto-approved, ${needsReview} need review, ${autoRejected} auto-rejected). Skipped ${skippedBlocklist} blocklisted, ${skippedDuplicate} duplicates. Contact finder queued for ${queueJobs.length} prospects.`,
       batch_id: batchId,
-      total_found: allProspects.length,
+      total_from_db: result.rows.length,
+      skipped_blocklist: skippedBlocklist,
+      skipped_duplicate: skippedDuplicate,
+      viable_prospects: allProspects.length,
       inserted: inserted,
       auto_approved: autoApproved,
       needs_review: needsReview,
@@ -422,15 +460,16 @@ router.post('/broken-links', async (req: Request, res: Response) => {
 
       try {
         // Build filters based on parameters
+        // User provides DA on 0-100 scale; DataForSEO rank is 0-1000, so multiply by 10
         const filters: any[] = [];
         if (dofollow) {
           filters.push(['dofollow', '=', true]);
           filters.push('and');
         }
-        filters.push(['rank', '>=', minDA]);
+        filters.push(['rank', '>=', minDA * 10]);
         if (maxDA < 100) {
           filters.push('and');
-          filters.push(['rank', '<=', maxDA]);
+          filters.push(['rank', '<=', maxDA * 10]);
         }
 
         // Use regular backlinks endpoint (broken_backlinks not available on all accounts)
@@ -470,7 +509,8 @@ router.post('/broken-links', async (req: Request, res: Response) => {
 
             // Score instead of filtering
             const filterReasons: string[] = [];
-            let qualityScore = Math.min(50 + (item.rank || 0) * 0.5, 100);
+            const normalizedDA = normalizeRankToDA(item.rank);
+            let qualityScore = Math.min(50 + normalizedDA * 0.5, 100);
 
             if (seenDomains.has(referringDomain)) {
               filterReasons.push('duplicate_domain');
@@ -518,8 +558,12 @@ router.post('/broken-links', async (req: Request, res: Response) => {
               referringDomain: referringDomain,
               brokenUrl: targetUrl,  // The competitor page being linked to
               anchorText: item.anchor || '',
-              domainRank: item.rank || item.domain_from_rank || 0,
+              domainRank: normalizedDA,
               pageTitle: item.page_from_title || '',
+              pageAuthority: normalizeRankToDA(item.page_from_rank),
+              isDofollow: item.dofollow ?? null,
+              firstSeen: item.first_seen || null,
+              lastSeen: item.last_seen || null,
               qualityScore: qualityScore,
               filterStatus: filterStatus,
               filterReasons: filterReasons,
@@ -579,14 +623,22 @@ ${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch 
           INSERT INTO prospects (
             url, domain, title, description, domain_authority, quality_score,
             filter_status, filter_reasons, filter_score,
+            broken_url, outbound_link_context,
+            page_authority, is_dofollow, first_seen, last_seen,
             opportunity_type, source, status, campaign_id, approval_status,
             suggested_article_url, suggested_article_title, match_reason, created_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'broken_link', 'dataforseo_broken', 'new', $10, 'pending', $11, $12, $13, NOW())
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'broken_link', 'dataforseo_broken', 'new', $16, 'pending', $17, $18, $19, NOW())
           ON CONFLICT (url) DO UPDATE SET
             quality_score = GREATEST(prospects.quality_score, EXCLUDED.quality_score),
             filter_reasons = array_cat(prospects.filter_reasons, EXCLUDED.filter_reasons),
             filter_score = GREATEST(prospects.filter_score, EXCLUDED.filter_score),
+            broken_url = COALESCE(EXCLUDED.broken_url, prospects.broken_url),
+            outbound_link_context = COALESCE(EXCLUDED.outbound_link_context, prospects.outbound_link_context),
+            page_authority = COALESCE(EXCLUDED.page_authority, prospects.page_authority),
+            is_dofollow = COALESCE(EXCLUDED.is_dofollow, prospects.is_dofollow),
+            first_seen = COALESCE(EXCLUDED.first_seen, prospects.first_seen),
+            last_seen = COALESCE(EXCLUDED.last_seen, prospects.last_seen),
             updated_at = NOW()
           RETURNING id
         `, [
@@ -599,6 +651,12 @@ ${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch 
           link.filterStatus,
           link.filterReasons,
           link.qualityScore,
+          link.brokenUrl || null,
+          link.anchorText || null,
+          link.pageAuthority,
+          link.isDofollow,
+          link.firstSeen,
+          link.lastSeen,
           campaignId,
           articleMatch?.article.url || null,
           articleMatch?.article.title || null,
@@ -743,15 +801,16 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
 
       try {
         // Build filters
+        // User provides DA on 0-100 scale; DataForSEO rank is 0-1000, so multiply by 10
         const filters: any[] = [];
         if (dofollow) {
           filters.push(['dofollow', '=', true]);
           filters.push('and');
         }
-        filters.push(['rank', '>=', minDA]);
+        filters.push(['rank', '>=', minDA * 10]);
         if (maxDA < 100) {
           filters.push('and');
-          filters.push(['rank', '<=', maxDA]);
+          filters.push(['rank', '<=', maxDA * 10]);
         }
 
         const response = await fetch('https://api.dataforseo.com/v3/backlinks/backlinks/live', {
@@ -790,7 +849,8 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
 
             // Score instead of filtering
             const filterReasons: string[] = [];
-            let qualityScore = Math.min(50 + (item.rank || item.domain_rank || 0) * 0.5, 100);
+            const normalizedDA = normalizeRankToDA(item.rank || item.domain_rank);
+            let qualityScore = Math.min(50 + normalizedDA * 0.5, 100);
 
             if (seenDomains.has(referringDomain)) {
               filterReasons.push('duplicate_domain');
@@ -833,8 +893,12 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
               referringDomain: referringDomain,
               brokenUrl: targetUrl,
               anchorText: item.anchor || '',
-              domainRank: item.rank || item.domain_rank || 0,
+              domainRank: normalizedDA,
               pageTitle: item.page_from_title || item.referring_page_title || '',
+              pageAuthority: normalizeRankToDA(item.page_from_rank),
+              isDofollow: item.dofollow ?? null,
+              firstSeen: item.first_seen || null,
+              lastSeen: item.last_seen || null,
               isBroken: isBroken,
               qualityScore: qualityScore,
               filterStatus: filterStatus,
@@ -926,10 +990,11 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
             filter_status, filter_reasons, filter_score,
             broken_url, broken_url_status_code, broken_url_verified_at,
             outbound_link_context,
+            page_authority, is_dofollow, first_seen, last_seen,
             opportunity_type, source, status, campaign_id, approval_status,
             suggested_article_url, suggested_article_title, match_reason, created_at
           )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'broken_link', 'dataforseo_verified', 'new', $14, 'pending', $15, $16, $17, NOW())
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'broken_link', 'dataforseo_verified', 'new', $18, 'pending', $19, $20, $21, NOW())
           ON CONFLICT (url) DO UPDATE SET
             quality_score = GREATEST(prospects.quality_score, EXCLUDED.quality_score),
             filter_reasons = array_cat(prospects.filter_reasons, EXCLUDED.filter_reasons),
@@ -937,6 +1002,10 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
             broken_url = EXCLUDED.broken_url,
             broken_url_status_code = EXCLUDED.broken_url_status_code,
             broken_url_verified_at = EXCLUDED.broken_url_verified_at,
+            page_authority = COALESCE(EXCLUDED.page_authority, prospects.page_authority),
+            is_dofollow = COALESCE(EXCLUDED.is_dofollow, prospects.is_dofollow),
+            first_seen = COALESCE(EXCLUDED.first_seen, prospects.first_seen),
+            last_seen = COALESCE(EXCLUDED.last_seen, prospects.last_seen),
             updated_at = NOW()
           RETURNING id
         `, [
@@ -953,6 +1022,10 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
           link.isBroken ? 404 : 0,        // HTTP status code
           new Date(),                      // When verified
           link.anchorText,                 // Anchor text context
+          link.pageAuthority,
+          link.isDofollow,
+          link.firstSeen,
+          link.lastSeen,
           campaignId,
           articleMatch?.article.url || null,
           articleMatch?.article.title || null,

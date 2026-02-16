@@ -3,25 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ProspectDetail, BulkActionBar } from '../../components/prospects';
 import FetchDataModal, { FetchParams } from '../../components/FetchDataModal';
-
-interface Prospect {
-  id: string;
-  url: string;
-  domain: string;
-  title: string | null;
-  description: string | null;
-  domain_authority: number | null;
-  quality_score: number | null;
-  opportunity_type: string;
-  status: string;
-  niche: string | null;
-  approval_status: string;
-  outcome_tag: string | null;
-  contact_count: number;
-  suggested_article_url?: string | null;
-  suggested_article_title?: string | null;
-  match_reason?: string | null;
-}
+import type { Prospect } from '../../lib/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
@@ -146,7 +128,6 @@ export default function BrokenLinksPage() {
     setFetching(true);
     setFetchResult(null);
     try {
-      // Choose endpoint based on mode
       const isSpecificUrls = params.mode === 'specific_urls';
       const endpoint = isSpecificUrls
         ? `${API_BASE}/data-fetch/backlinks-to-url`
@@ -178,7 +159,6 @@ export default function BrokenLinksPage() {
       if (res.ok) {
         let message: string;
         if (isSpecificUrls) {
-          // Show status of each URL checked
           const urlStatuses = data.url_statuses || [];
           const brokenCount = urlStatuses.filter((u: any) => u.isBroken).length;
           message = `Checked ${urlStatuses.length} URLs (${brokenCount} confirmed broken), found ${data.total_found || 0} pages linking to them, ${data.inserted || 0} new prospects added`;
@@ -202,17 +182,6 @@ export default function BrokenLinksPage() {
       });
     }
     setFetching(false);
-  };
-
-  // Parse broken link info from description
-  const getBrokenLinkInfo = (description: string | null) => {
-    if (!description) return null;
-    const brokenUrlMatch = description.match(/Broken URL: (.+)/);
-    const anchorMatch = description.match(/Anchor text: "(.+)"/);
-    return {
-      brokenUrl: brokenUrlMatch?.[1] || null,
-      anchorText: anchorMatch?.[1] || null,
-    };
   };
 
   const tabs = [
@@ -282,7 +251,7 @@ export default function BrokenLinksPage() {
             <div>
               <h3 className="font-medium text-orange-800">No Broken Link Prospects Yet</h3>
               <p className="text-sm text-orange-700 mt-1">
-                Click "Fetch Fresh Data" above to find sites linking to EMF competitors with broken links via the DataForSEO API.
+                Click &quot;Fetch Fresh Data&quot; above to find sites linking to EMF competitors with broken links via the DataForSEO API.
               </p>
             </div>
           </div>
@@ -349,67 +318,98 @@ export default function BrokenLinksPage() {
                   No {activeTab} broken link prospects
                 </div>
               ) : (
-                prospects.map((prospect) => {
-                  const linkInfo = getBrokenLinkInfo(prospect.description);
-                  return (
-                    <div
-                      key={prospect.id}
-                      onClick={() => setSelectedProspect(prospect)}
-                      className={`
-                        p-3 rounded-lg border cursor-pointer transition-colors
-                        ${selectedProspect?.id === prospect.id
-                          ? 'bg-orange-50 border-orange-200'
-                          : 'bg-white border-gray-200 hover:bg-gray-50'
-                        }
-                      `}
-                    >
-                      <div className="flex items-start gap-3">
-                        {activeTab === 'pending' && (
-                          <input
-                            type="checkbox"
-                            checked={checkedIds.has(prospect.id)}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              handleToggleCheck(prospect.id);
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="mt-1 rounded border-gray-300"
-                          />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex justify-between items-start">
-                            <span className="font-medium text-gray-900">{prospect.domain}</span>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-800">
-                              DA: {prospect.domain_authority || '-'}
+                prospects.map((prospect) => (
+                  <div
+                    key={prospect.id}
+                    onClick={() => setSelectedProspect(prospect)}
+                    className={`
+                      p-3 rounded-lg border cursor-pointer transition-colors
+                      ${selectedProspect?.id === prospect.id
+                        ? 'bg-orange-50 border-orange-200'
+                        : 'bg-white border-gray-200 hover:bg-gray-50'
+                      }
+                    `}
+                  >
+                    <div className="flex items-start gap-3">
+                      {activeTab === 'pending' && (
+                        <input
+                          type="checkbox"
+                          checked={checkedIds.has(prospect.id)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            handleToggleCheck(prospect.id);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-1 rounded border-gray-300"
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        {/* Row 1: Domain + DA/PA badges */}
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium text-gray-900 truncate">{prospect.domain}</span>
+                          <div className="flex gap-1.5 flex-shrink-0 ml-2">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 font-medium">
+                              DA {prospect.domain_authority ?? '-'}
+                            </span>
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-medium">
+                              PA {prospect.page_authority ?? '-'}
                             </span>
                           </div>
-                          {linkInfo?.anchorText && (
-                            <div className="text-sm text-gray-600 mt-1">
-                              Anchor: "{linkInfo.anchorText}"
-                            </div>
-                          )}
-                          {linkInfo?.brokenUrl && (
-                            <div className="text-xs text-red-500 mt-1 truncate">
-                              Broken: {linkInfo.brokenUrl}
-                            </div>
-                          )}
-                          <div className="flex items-center gap-3 text-xs text-gray-500 mt-2">
-                            <span>{prospect.contact_count} contacts</span>
-                            {prospect.outcome_tag && (
-                              <span className={`px-2 py-0.5 rounded-full ${
-                                prospect.outcome_tag === 'partner' ? 'bg-green-100 text-green-800' :
-                                prospect.outcome_tag === 'not_interested' ? 'bg-red-100 text-red-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}>
-                                {prospect.outcome_tag.replace('_', ' ')}
+                        </div>
+
+                        {/* Row 2: Page title (the referring article) */}
+                        {prospect.title && (
+                          <div className="text-sm text-gray-700 mt-1 truncate" title={prospect.title}>
+                            {prospect.title}
+                          </div>
+                        )}
+
+                        {/* Row 3: Anchor text from outbound_link_context */}
+                        {prospect.outbound_link_context && (
+                          <div className="text-sm text-gray-500 mt-1 truncate">
+                            Anchor: &quot;{prospect.outbound_link_context}&quot;
+                          </div>
+                        )}
+
+                        {/* Row 4: Broken URL + status code */}
+                        {prospect.broken_url && (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <span className="text-xs text-red-600 truncate" title={prospect.broken_url}>
+                              {prospect.broken_url}
+                            </span>
+                            {prospect.broken_url_status_code != null && prospect.broken_url_status_code > 0 && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-mono flex-shrink-0">
+                                {prospect.broken_url_status_code}
                               </span>
                             )}
                           </div>
+                        )}
+
+                        {/* Row 5: Contact count + suggested replacement + score */}
+                        <div className="flex items-center gap-3 text-xs text-gray-500 mt-2">
+                          <span>{prospect.contact_count} contact{prospect.contact_count !== 1 ? 's' : ''}</span>
+                          {prospect.suggested_article_title && (
+                            <span className="text-green-600 truncate" title={prospect.suggested_article_title}>
+                              {prospect.suggested_article_title}
+                            </span>
+                          )}
+                          {prospect.quality_score != null && (
+                            <span className="ml-auto flex-shrink-0">Score: {prospect.quality_score}</span>
+                          )}
+                          {prospect.outcome_tag && (
+                            <span className={`px-2 py-0.5 rounded-full flex-shrink-0 ${
+                              prospect.outcome_tag === 'partner' ? 'bg-green-100 text-green-800' :
+                              prospect.outcome_tag === 'not_interested' ? 'bg-red-100 text-red-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                              {prospect.outcome_tag.replace('_', ' ')}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
-                  );
-                })
+                  </div>
+                ))
               )}
             </div>
           </div>

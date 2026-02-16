@@ -574,6 +574,13 @@ router.get('/trash', async (req: Request, res: Response) => {
 // GET /api/v1/prospects/:id - Get single prospect with contacts
 router.get('/:id', async (req: Request, res: Response) => {
   try {
+    // Validate UUID format to prevent DB errors from route mismatches
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(req.params.id)) {
+      res.status(400).json({ error: 'Invalid prospect ID format' });
+      return;
+    }
+
     const prospect = await prospectRepository.findById(req.params.id as string);
     if (!prospect) {
       res.status(404).json({ error: 'Prospect not found' });

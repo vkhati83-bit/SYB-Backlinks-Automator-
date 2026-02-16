@@ -3,27 +3,9 @@
 import { useState, useEffect } from 'react';
 import ContactQueue from './ContactQueue';
 import OutcomeTagSelector from './OutcomeTagSelector';
+import type { Prospect } from '../../lib/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
-
-interface Prospect {
-  id: string;
-  url: string;
-  domain: string;
-  title: string | null;
-  description: string | null;
-  domain_authority: number | null;
-  quality_score: number | null;
-  opportunity_type: string;
-  status: string;
-  niche: string | null;
-  approval_status: string;
-  outcome_tag: string | null;
-  contact_count: number;
-  suggested_article_url?: string | null;
-  suggested_article_title?: string | null;
-  match_reason?: string | null;
-}
 
 interface Contact {
   id: string;
@@ -105,7 +87,6 @@ export default function ProspectDetail({
         body: JSON.stringify({ contact_id: contactId }),
       });
       if (res.ok) {
-        // Refresh contacts
         const contactsRes = await fetch(`${API_BASE}/contacts/${prospect.id}`);
         if (contactsRes.ok) {
           const data = await contactsRes.json();
@@ -198,14 +179,12 @@ export default function ProspectDetail({
       });
 
       if (res.ok) {
-        // Poll for new contacts every 2 seconds
         const pollInterval = setInterval(async () => {
           const contactsRes = await fetch(`${API_BASE}/contacts/${prospect.id}`);
           if (contactsRes.ok) {
             const data = await contactsRes.json();
             setContacts(data.contacts || []);
 
-            // Stop polling after 30 seconds or when contacts are found
             if (data.contacts && data.contacts.length > 0) {
               clearInterval(pollInterval);
               setFindingEmails(false);
@@ -213,7 +192,6 @@ export default function ProspectDetail({
           }
         }, 2000);
 
-        // Stop polling after 30 seconds max
         setTimeout(() => {
           clearInterval(pollInterval);
           setFindingEmails(false);
@@ -238,7 +216,6 @@ export default function ProspectDetail({
       });
 
       if (res.ok) {
-        // Refresh contacts to show updated primary
         await fetchData();
         alert('Contact selected! Email generation has been queued and will appear in the review queue shortly.');
       } else {
@@ -310,7 +287,6 @@ export default function ProspectDetail({
       if (res.ok) {
         setShowComposeModal(false);
         setGeneratedEmail(null);
-        // Optionally refresh or show success message
       } else {
         const error = await res.json();
         setComposeError(error.message || 'Failed to send email');
@@ -320,6 +296,8 @@ export default function ProspectDetail({
     }
     setComposing(false);
   };
+
+  const isBrokenLink = prospect.opportunity_type === 'broken_link';
 
   return (
     <div className="card h-full overflow-y-auto">
@@ -336,16 +314,28 @@ export default function ProspectDetail({
         <div className="text-sm text-gray-500 truncate mt-1">{prospect.url}</div>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-4 gap-4 py-4 border-y border-gray-100 mb-4">
+      {/* Stats Row — expanded for broken_link */}
+      <div className={`grid ${isBrokenLink ? 'grid-cols-6' : 'grid-cols-4'} gap-4 py-4 border-y border-gray-100 mb-4`}>
         <div className="text-center">
-          <div className="text-2xl font-bold text-gray-900">{prospect.domain_authority || '-'}</div>
+          <div className="text-2xl font-bold text-gray-900">{prospect.domain_authority ?? '-'}</div>
           <div className="text-xs text-gray-500">DA</div>
         </div>
+        {isBrokenLink && (
+          <div className="text-center">
+            <div className="text-2xl font-bold text-blue-600">{prospect.page_authority ?? '-'}</div>
+            <div className="text-xs text-gray-500">PA</div>
+          </div>
+        )}
         <div className="text-center">
-          <div className="text-2xl font-bold text-primary-600">{prospect.quality_score || '-'}</div>
+          <div className="text-2xl font-bold text-primary-600">{prospect.quality_score ?? '-'}</div>
           <div className="text-xs text-gray-500">Score</div>
         </div>
+        {isBrokenLink && (
+          <div className="text-center">
+            <div className="text-2xl font-bold text-gray-900">{prospect.spam_score ?? '-'}</div>
+            <div className="text-xs text-gray-500">Spam</div>
+          </div>
+        )}
         <div className="text-center">
           <div className="text-2xl font-bold text-gray-900">{contacts.length}</div>
           <div className="text-xs text-gray-500">Contacts</div>
@@ -358,8 +348,77 @@ export default function ProspectDetail({
         </div>
       </div>
 
+      {/* Broken Link Details (red-tinted card) */}
+      {isBrokenLink && (prospect.broken_url || prospect.outbound_link_context) && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <div className="flex items-start gap-2">
+            <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-red-800 mb-2">Broken Link Details</div>
+
+              {/* Referring article */}
+              <div className="mb-2">
+                <div className="text-xs text-red-600 font-medium">Referring Article</div>
+                <a
+                  href={prospect.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-red-700 hover:underline truncate block"
+                  title={prospect.url}
+                >
+                  {prospect.title || prospect.url}
+                </a>
+              </div>
+
+              {/* Broken URL + status code */}
+              {prospect.broken_url && (
+                <div className="mb-2">
+                  <div className="text-xs text-red-600 font-medium">Broken URL</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-red-700 truncate" title={prospect.broken_url}>
+                      {prospect.broken_url}
+                    </span>
+                    {prospect.broken_url_status_code != null && prospect.broken_url_status_code > 0 && (
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-red-200 text-red-800 font-mono flex-shrink-0">
+                        HTTP {prospect.broken_url_status_code}
+                      </span>
+                    )}
+                  </div>
+                  {prospect.broken_url_verified_at && (
+                    <div className="text-xs text-red-500 mt-0.5">
+                      Verified: {new Date(prospect.broken_url_verified_at).toLocaleDateString()}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Anchor text */}
+              {prospect.outbound_link_context && (
+                <div className="mb-2">
+                  <div className="text-xs text-red-600 font-medium">Anchor Text</div>
+                  <div className="text-sm text-red-700">&quot;{prospect.outbound_link_context}&quot;</div>
+                </div>
+              )}
+
+              {/* Dofollow badge */}
+              {prospect.is_dofollow != null && (
+                <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${
+                  prospect.is_dofollow
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-gray-100 text-gray-600'
+                }`}>
+                  {prospect.is_dofollow ? 'Dofollow' : 'Nofollow'}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Suggested Article (for broken link prospects) */}
-      {prospect.opportunity_type === 'broken_link' && prospect.suggested_article_url && (
+      {isBrokenLink && prospect.suggested_article_url && (
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
           <div className="flex items-start gap-2">
             <svg className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
