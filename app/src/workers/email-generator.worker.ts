@@ -41,7 +41,11 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     contactName: contact.name,
     contactEmail: contact.email,
     opportunityType: prospect.opportunity_type,
-    pageContent: prospect.page_content || undefined,
+    pageContent: (prospect as any).page_content || undefined,
+    suggestedArticleUrl: prospect.suggested_article_url,
+    suggestedArticleTitle: prospect.suggested_article_title,
+    matchReason: prospect.match_reason,
+    brokenUrl: (prospect as any).broken_url,
   });
 
   // Save email to database

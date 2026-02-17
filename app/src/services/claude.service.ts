@@ -15,6 +15,10 @@ export interface EmailGenerationInput {
   contactEmail: string;
   opportunityType: 'research_citation' | 'broken_link' | 'guest_post';
   pageContent?: string;
+  suggestedArticleUrl?: string | null;
+  suggestedArticleTitle?: string | null;
+  matchReason?: string | null;
+  brokenUrl?: string | null;
 }
 
 export interface GeneratedEmail {
@@ -53,6 +57,18 @@ IMPORTANT:
 
 // Generate email for research citation opportunity
 async function generateResearchCitationEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
+  const articleSection = input.suggestedArticleUrl
+    ? `\nSUGGESTED SYB ARTICLE TO RECOMMEND:
+- URL: ${input.suggestedArticleUrl}
+- Title: ${input.suggestedArticleTitle || 'N/A'}
+- Why it matches: ${input.matchReason || 'Relevant to their content'}
+`
+    : '';
+
+  const pitch = input.suggestedArticleUrl
+    ? `The target page discusses EMF-related topics. Suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a valuable resource they could cite or link to. This article is directly relevant to their content. Also mention our broader research database at shieldyourbody.com/research with 3,600+ peer-reviewed studies.`
+    : `The target page discusses EMF-related topics. Suggest that our research database (shieldyourbody.com/research) with 3,600+ peer-reviewed studies could be a valuable resource to cite/link to, enhancing the credibility of their content.`;
+
   const prompt = `Write an outreach email for this research citation opportunity:
 
 TARGET WEBSITE:
@@ -61,13 +77,13 @@ TARGET WEBSITE:
 - Page title: ${input.prospectTitle || 'Unknown'}
 - Page description: ${input.prospectDescription || 'Unknown'}
 ${input.pageContent ? `- Page content excerpt: ${input.pageContent.substring(0, 1000)}` : ''}
-
+${articleSection}
 CONTACT:
 - Name: ${input.contactName || 'Editor/Content Team'}
 - Email: ${input.contactEmail}
 
 PITCH:
-The target page discusses EMF-related topics. Suggest that our research database (shieldyourbody.com/research) with 3,600+ peer-reviewed studies could be a valuable resource to cite/link to, enhancing the credibility of their content.
+${pitch}
 
 Generate a JSON response with "subject" and "body" fields.`;
 
@@ -103,19 +119,34 @@ Generate a JSON response with "subject" and "body" fields.`;
 
 // Generate email for broken link opportunity
 async function generateBrokenLinkEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
+  const brokenUrlInfo = input.brokenUrl ? `- Broken URL on their page: ${input.brokenUrl}` : '';
+
+  const articleSection = input.suggestedArticleUrl
+    ? `\nSUGGESTED REPLACEMENT ARTICLE:
+- URL: ${input.suggestedArticleUrl}
+- Title: ${input.suggestedArticleTitle || 'N/A'}
+- Why it's a good replacement: ${input.matchReason || 'Relevant to the broken link topic'}
+`
+    : '';
+
+  const pitch = input.suggestedArticleUrl
+    ? `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a replacement — it covers the same topic the broken link was about. Be helpful, not opportunistic.`
+    : `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our research database (shieldyourbody.com/research) as a relevant replacement resource. Be helpful, not opportunistic.`;
+
   const prompt = `Write an outreach email for this broken link opportunity:
 
 TARGET WEBSITE:
 - URL: ${input.prospectUrl}
 - Domain: ${input.prospectDomain}
 - Issue: ${input.prospectDescription || 'Has a broken link'}
-
+${brokenUrlInfo}
+${articleSection}
 CONTACT:
 - Name: ${input.contactName || 'Editor/Webmaster'}
 - Email: ${input.contactEmail}
 
 PITCH:
-We noticed a broken link on their page. Politely point this out and suggest our research database (shieldyourbody.com/research) as a relevant replacement resource. Be helpful, not opportunistic.
+${pitch}
 
 Generate a JSON response with "subject" and "body" fields.`;
 
