@@ -451,7 +451,7 @@ router.post('/broken-links', async (req: Request, res: Response) => {
       // Direct competitors
       'defendershield.com', 'safesleevecases.com', 'airestech.com', 'emfharmony.com', 'lessemf.com',
       // EMF info sites
-      'emfacademy.com', 'electricsense.com', 'emfanalysis.com',
+      'electricsense.com', 'emfanalysis.com',
       // Health/wellness sites with EMF content
       'draxe.com', 'mercola.com', 'wellnessmama.com',
       // Additional EMF niche
