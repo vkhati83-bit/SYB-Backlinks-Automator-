@@ -21,7 +21,7 @@ const envSchema = z.object({
 
   // Resend
   RESEND_API_KEY: z.string().min(1, 'RESEND_API_KEY is required'),
-  OUTREACH_FROM_EMAIL: z.string().email().default('outreach@mail.shieldyourbody.com'),
+  OUTREACH_FROM_EMAIL: z.string().email().default('outreach@shieldyourbody.com'),
   TEST_EMAIL_RECIPIENT: z.string().email().default('vicky@shieldyourbody.com'),
 
   // Anthropic
