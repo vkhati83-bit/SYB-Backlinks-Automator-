@@ -442,9 +442,23 @@ router.post('/broken-links', async (req: Request, res: Response) => {
       minDA = 15,
       maxDA = 100,
       limit = 50,
-      competitors = ['defendershield.com', 'safesleevecases.com', 'airestech.com'],
+      competitors: rawCompetitors = [],
       dofollow = true,
     } = req.body;
+
+    // If no competitors specified, auto-research a broad set of EMF niche sites
+    const EMF_NICHE_TARGETS = [
+      // Direct competitors
+      'defendershield.com', 'safesleevecases.com', 'airestech.com', 'emfharmony.com', 'lessemf.com',
+      // EMF info sites
+      'emfacademy.com', 'electricsense.com', 'emfanalysis.com',
+      // Health/wellness sites with EMF content
+      'draxe.com', 'mercola.com', 'wellnessmama.com',
+      // Additional EMF niche
+      'saferemf.com', 'emfwise.com', 'nontoxicliving.tips', 'buildingbiology.org',
+    ];
+
+    const competitors = rawCompetitors.length > 0 ? rawCompetitors : EMF_NICHE_TARGETS;
 
     const AUTH = Buffer.from(`${DATAFORSEO_LOGIN}:${DATAFORSEO_PASSWORD}`).toString('base64');
 

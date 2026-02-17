@@ -29,12 +29,6 @@ export interface FetchParams {
   brokenUrls?: string[];
 }
 
-const DEFAULT_COMPETITORS = [
-  'defendershield.com',
-  'safesleevecases.com',
-  'airestech.com',
-];
-
 export default function FetchDataModal({ isOpen, onClose, type, onFetch }: FetchDataModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +45,7 @@ export default function FetchDataModal({ isOpen, onClose, type, onFetch }: Fetch
 
   // Broken link filters
   const [brokenLinkMode, setBrokenLinkMode] = useState<'competitors' | 'specific_urls'>('competitors');
-  const [competitors, setCompetitors] = useState<string[]>(DEFAULT_COMPETITORS);
+  const [competitors, setCompetitors] = useState<string[]>([]);
   const [newCompetitor, setNewCompetitor] = useState('');
   const [dofollow, setDofollow] = useState(true);
 
@@ -327,7 +321,7 @@ export default function FetchDataModal({ isOpen, onClose, type, onFetch }: Fetch
                 {brokenLinkMode === 'competitors' && (
                   <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
                     <p className="text-sm text-gray-600">
-                      Find pages that link to these competitor domains where the link is now broken (404).
+                      Find broken backlinks across EMF niche sites. Add specific domains below, or leave empty to auto-research a broad set of EMF/health competitors.
                     </p>
 
                     {/* Competitors List */}
