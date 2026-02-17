@@ -1264,4 +1264,81 @@ router.post('/find-contacts', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/v1/data-fetch/backfill-articles - Re-run article matching on existing prospects
+router.post('/backfill-articles', async (req: Request, res: Response) => {
+  try {
+    const { opportunity_type, limit = 200 } = req.body;
+
+    let query = `
+      SELECT id, url, domain, title, description, opportunity_type,
+             outbound_link_context, broken_url
+      FROM prospects
+      WHERE deleted_at IS NULL
+      AND suggested_article_url IS NULL
+    `;
+    const params: any[] = [];
+
+    if (opportunity_type) {
+      params.push(opportunity_type);
+      query += ` AND opportunity_type = $${params.length}`;
+    }
+
+    params.push(Math.min(limit, 500));
+    query += ` LIMIT $${params.length}`;
+
+    const result = await db.query(query, params);
+    logger.info(`Backfilling article matches for ${result.rows.length} prospects`);
+
+    let updated = 0;
+    for (const prospect of result.rows) {
+      // Build matching inputs based on opportunity type
+      let anchorText = '';
+      let urlForMatching = '';
+
+      if (prospect.opportunity_type === 'broken_link') {
+        anchorText = prospect.outbound_link_context || '';
+        urlForMatching = prospect.broken_url || prospect.url || '';
+      } else {
+        // research_citation: use URL + title for matching
+        anchorText = '';
+        urlForMatching = prospect.url || '';
+      }
+
+      const articleMatch = await findMatchingArticle(
+        anchorText,
+        urlForMatching,
+        prospect.title
+      );
+
+      if (articleMatch) {
+        await db.query(`
+          UPDATE prospects
+          SET suggested_article_url = $1,
+              suggested_article_title = $2,
+              match_reason = $3,
+              quality_score = LEAST(100, COALESCE(quality_score, 0) + 10),
+              updated_at = NOW()
+          WHERE id = $4
+        `, [
+          articleMatch.article.url,
+          articleMatch.article.title,
+          articleMatch.reason,
+          prospect.id,
+        ]);
+        updated++;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Backfilled article matches: ${updated}/${result.rows.length} prospects updated`,
+      total_checked: result.rows.length,
+      updated,
+    });
+  } catch (error) {
+    logger.error('Error backfilling article matches:', error);
+    res.status(500).json({ error: 'Failed to backfill article matches' });
+  }
+});
+
 export default router;

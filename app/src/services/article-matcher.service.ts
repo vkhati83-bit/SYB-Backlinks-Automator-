@@ -27,6 +27,12 @@ const TOPIC_KEYWORDS: Record<string, string[]> = {
   'sleep-emf': ['sleep emf', 'bedroom emf', 'sleep sanctuary', 'emf sleep'],
   'grounding': ['grounding', 'earthing', 'ground yourself'],
   'phone-case': ['phone case', 'emf case', 'radiation case', 'protective case'],
+  'airplane-mode': ['airplane mode', 'aeroplane mode', 'flight mode'],
+  'sar-levels': ['sar level', 'sar rating', 'specific absorption rate', 'highest radiation phone', 'phone radiation level'],
+  'emf-health': ['emf health', 'emf effects', 'emf danger', 'emf risk', 'electromagnetic health', 'radiation health effect'],
+  'smart-meter': ['smart meter', 'electricity meter emf', 'smart meter radiation'],
+  'laptop-radiation': ['laptop radiation', 'laptop emf', 'computer radiation'],
+  'fitness-tracker': ['fitness tracker', 'fitbit radiation', 'smartwatch radiation', 'wearable emf', 'apple watch radiation'],
 };
 
 // Direct URL keyword to article mapping
@@ -52,6 +58,19 @@ const URL_TO_ARTICLE: Record<string, string> = {
   'cancer': 'https://www.shieldyourbody.com/cell-phone-cancer/',
   'sleep': 'https://www.shieldyourbody.com/sleep-sanctuary/',
   'body-voltage': 'https://www.shieldyourbody.com/body-voltage/',
+  'airplane-mode': 'https://www.shieldyourbody.com/airplane-mode/',
+  'sar-levels': 'https://www.shieldyourbody.com/specific-absorption-rate/',
+  'sar-rating': 'https://www.shieldyourbody.com/specific-absorption-rate/',
+  'smart-meter': 'https://www.shieldyourbody.com/smart-meter-emf/',
+  'laptop-radiation': 'https://www.shieldyourbody.com/laptop-radiation/',
+  'laptop-emf': 'https://www.shieldyourbody.com/laptop-radiation/',
+  'fitness-tracker': 'https://www.shieldyourbody.com/fitbit-radiation/',
+  'fitbit': 'https://www.shieldyourbody.com/fitbit-radiation/',
+  'smartwatch': 'https://www.shieldyourbody.com/fitbit-radiation/',
+  'apple-watch': 'https://www.shieldyourbody.com/fitbit-radiation/',
+  'wireless-radiation': 'https://www.shieldyourbody.com/wifi-radiation/',
+  'wifi': 'https://www.shieldyourbody.com/wifi-radiation/',
+  'router': 'https://www.shieldyourbody.com/wifi-radiation/',
 };
 
 /**
@@ -99,11 +118,12 @@ export async function findMatchingArticle(
   brokenUrl: string,
   pageTitle?: string
 ): Promise<MatchResult | null> {
-  const combinedText = `${anchorText} ${brokenUrl} ${pageTitle || ''}`.toLowerCase();
+  // Normalize hyphens/underscores in URLs to spaces so URL path keywords match topic keywords
+  const combinedText = `${anchorText} ${brokenUrl} ${pageTitle || ''}`.toLowerCase().replace(/[-_]/g, ' ');
 
   // First, try direct URL keyword matching
   for (const [keyword, articleUrl] of Object.entries(URL_TO_ARTICLE)) {
-    if (combinedText.includes(keyword.replace('-', ' ')) || combinedText.includes(keyword)) {
+    if (combinedText.includes(keyword.replace(/-/g, ' ')) || combinedText.includes(keyword)) {
       const articles = await getSYBArticles();
       const article = articles.find(a => a.url === articleUrl);
       if (article) {
