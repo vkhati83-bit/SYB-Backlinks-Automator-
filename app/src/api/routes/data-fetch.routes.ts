@@ -576,11 +576,13 @@ router.post('/broken-links', async (req: Request, res: Response) => {
             // Dofollow bonus (+15)
             if (item.dofollow) qualityScore += 15;
 
-            // Anchor text / page title relevance to health/EMF (+20)
-            const textContext = `${item.anchor || ''} ${item.page_from_title || ''}`;
+            // Anchor text / page title relevance to health/EMF (+20 if present, -25 penalty if absent)
+            // Pages must be talking about EMF/health topics to be worth outreach
+            const textContext = `${item.anchor || ''} ${item.page_from_title || ''} ${item.url_from || ''}`;
             if (hasHealthSignal(textContext)) {
               qualityScore += 20;
             } else {
+              qualityScore -= 25;
               filterReasons.push('no_health_keywords');
             }
 
@@ -953,11 +955,13 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
             // Dofollow bonus (+15)
             if (item.dofollow) qualityScore += 15;
 
-            // Anchor text / page title relevance (+20)
-            const textContext = `${item.anchor || ''} ${item.page_from_title || item.referring_page_title || ''}`;
+            // Anchor text / page title relevance (+20 if present, -25 penalty if absent)
+            // Pages must be talking about EMF/health topics to be worth outreach
+            const textContext = `${item.anchor || ''} ${item.page_from_title || item.referring_page_title || ''} ${item.url_from || item.referring_page || ''}`;
             if (hasHealthSignal(textContext)) {
               qualityScore += 20;
             } else {
+              qualityScore -= 25;
               filterReasons.push('no_health_keywords');
             }
 
