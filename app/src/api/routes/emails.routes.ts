@@ -48,6 +48,11 @@ router.post('/generate', async (req: Request, res: Response) => {
       contactName: contact.name,
       contactEmail: contact.email,
       opportunityType: prospect.opportunity_type,
+      pageContent: prospect.page_content || undefined,
+      suggestedArticleUrl: prospect.suggested_article_url,
+      suggestedArticleTitle: prospect.suggested_article_title,
+      matchReason: prospect.match_reason,
+      brokenUrl: prospect.broken_url,
     });
 
     res.json({
