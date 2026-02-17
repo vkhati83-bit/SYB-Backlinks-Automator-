@@ -8,6 +8,7 @@ import {
   BulkActionBar,
   KeywordConfig,
 } from '../../components/prospects';
+import ProspectFilterBar, { ProspectFilters, defaultFilters, filtersToQueryString } from '../../components/ProspectFilterBar';
 import type { Prospect } from '../../lib/types';
 
 interface GroupedProspects {
@@ -16,32 +17,18 @@ interface GroupedProspects {
   guest_post: Prospect[];
 }
 
-interface Contact {
-  id: string;
-  email: string;
-  name: string | null;
-  role: string | null;
-  confidence_tier: string;
-}
-
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
 export default function ProspectsPage() {
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'completed'>('pending');
-  const [groupedProspects, setGroupedProspects] = useState<GroupedProspects>({
-    broken_link: [],
-    research_citation: [],
-    guest_post: [],
-  });
-  const [approvedProspects, setApprovedProspects] = useState<Prospect[]>([]);
-  const [completedProspects, setCompletedProspects] = useState<Prospect[]>([]);
+  const [prospects, setProspects] = useState<Prospect[]>([]);
   const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [newContact, setNewContact] = useState({ email: '', name: '', role: '' });
-  const [displayLimit, setDisplayLimit] = useState(1000); // Show all by default
+  const [filters, setFilters] = useState<ProspectFilters>(defaultFilters);
 
   const [counts, setCounts] = useState({
     pending: 0,
@@ -52,67 +39,64 @@ export default function ProspectsPage() {
   const fetchProspects = useCallback(async () => {
     setLoading(true);
     try {
+      let url: string;
       if (activeTab === 'pending') {
-        const res = await fetch(`${API_BASE}/prospects/grouped?approval_status=pending`);
-        if (res.ok) {
-          const data = await res.json();
-          console.log('[DEBUG] API Response:', {
-            total: data.total,
-            broken_link_count: data.broken_link?.length || 0,
-            research_citation_count: data.research_citation?.length || 0,
-            guest_post_count: data.guest_post?.length || 0,
-          });
-          setGroupedProspects({
-            broken_link: data.broken_link || [],
-            research_citation: data.research_citation || [],
-            guest_post: data.guest_post || [],
-          });
-          setCounts(prev => ({
-            ...prev,
-            pending: data.total || 0,
-          }));
-        }
-      } else if (activeTab === 'approved') {
-        const res = await fetch(`${API_BASE}/prospects/approved`);
-        if (res.ok) {
-          const data = await res.json();
-          setApprovedProspects(data.prospects || []);
-          setCounts(prev => ({
-            ...prev,
-            approved: data.total || 0,
-          }));
-        }
+        url = `${API_BASE}/prospects?approval_status=pending${filtersToQueryString(filters)}`;
       } else if (activeTab === 'completed') {
-        const res = await fetch(`${API_BASE}/prospects/completed`);
-        if (res.ok) {
-          const data = await res.json();
-          setCompletedProspects(data.prospects || []);
-          setCounts(prev => ({
-            ...prev,
-            completed: data.total || 0,
-          }));
+        url = `${API_BASE}/prospects?approval_status=approved${filtersToQueryString(filters)}`;
+      } else {
+        url = `${API_BASE}/prospects?approval_status=${activeTab}${filtersToQueryString(filters)}`;
+      }
+
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        let list = data.prospects || [];
+
+        if (activeTab === 'completed') {
+          list = list.filter((p: Prospect) => p.outcome_tag !== null);
+        } else if (activeTab === 'approved') {
+          list = list.filter((p: Prospect) => p.outcome_tag === null);
         }
+
+        setProspects(list);
       }
     } catch (error) {
       console.error('Error fetching prospects:', error);
     }
     setLoading(false);
-  }, [activeTab]);
+  }, [activeTab, filters]);
+
+  // Group prospects by opportunity_type for the pending tab display
+  const groupedProspects: GroupedProspects = {
+    broken_link: prospects.filter(p => p.opportunity_type === 'broken_link'),
+    research_citation: prospects.filter(p => p.opportunity_type === 'research_citation'),
+    guest_post: prospects.filter(p => p.opportunity_type === 'guest_post'),
+  };
 
   // Fetch counts for all tabs
   const fetchCounts = useCallback(async () => {
     try {
-      const [pendingRes, approvedRes, completedRes] = await Promise.all([
-        fetch(`${API_BASE}/prospects/grouped?approval_status=pending`),
-        fetch(`${API_BASE}/prospects/approved`),
-        fetch(`${API_BASE}/prospects/completed`),
+      const [pendingRes, approvedRes] = await Promise.all([
+        fetch(`${API_BASE}/prospects?approval_status=pending&limit=1`),
+        fetch(`${API_BASE}/prospects?approval_status=approved&limit=1`),
       ]);
 
-      const pending = pendingRes.ok ? (await pendingRes.json()).total || 0 : 0;
-      const approved = approvedRes.ok ? (await approvedRes.json()).total || 0 : 0;
-      const completed = completedRes.ok ? (await completedRes.json()).total || 0 : 0;
+      const pendingData = pendingRes.ok ? await pendingRes.json() : { total: 0, prospects: [] };
+      const approvedData = approvedRes.ok ? await approvedRes.json() : { total: 0, prospects: [] };
 
-      setCounts({ pending, approved, completed });
+      // We need full approved list to split approved/completed counts
+      const approvedFullRes = await fetch(`${API_BASE}/prospects?approval_status=approved`);
+      const approvedFullData = approvedFullRes.ok ? await approvedFullRes.json() : { prospects: [] };
+      const approvedAll = approvedFullData.prospects || [];
+      const completedCount = approvedAll.filter((p: Prospect) => p.outcome_tag !== null).length;
+      const approvedCount = approvedAll.filter((p: Prospect) => p.outcome_tag === null).length;
+
+      setCounts({
+        pending: pendingData.total || 0,
+        approved: approvedCount,
+        completed: completedCount,
+      });
     } catch (error) {
       console.error('Error fetching counts:', error);
     }
@@ -130,6 +114,7 @@ export default function ProspectsPage() {
     setActiveTab(tab);
     setSelectedProspect(null);
     setCheckedIds(new Set());
+    setFilters(defaultFilters);
   };
 
   const handleSelectProspect = (prospect: Prospect) => {
@@ -171,7 +156,6 @@ export default function ProspectsPage() {
       });
 
       if (res.ok) {
-        // Refresh data
         await fetchProspects();
         await fetchCounts();
         setCheckedIds(new Set());
@@ -185,19 +169,7 @@ export default function ProspectsPage() {
 
   const handleUpdateProspect = (updated: Prospect) => {
     setSelectedProspect(updated);
-
-    // Update in the appropriate list
-    if (activeTab === 'pending') {
-      setGroupedProspects(prev => ({
-        broken_link: prev.broken_link.map(p => p.id === updated.id ? updated : p),
-        research_citation: prev.research_citation.map(p => p.id === updated.id ? updated : p),
-        guest_post: prev.guest_post.map(p => p.id === updated.id ? updated : p),
-      }));
-    } else if (activeTab === 'approved') {
-      setApprovedProspects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    } else if (activeTab === 'completed') {
-      setCompletedProspects(prev => prev.map(p => p.id === updated.id ? updated : p));
-    }
+    setProspects(prev => prev.map(p => p.id === updated.id ? updated : p));
   };
 
   const handleAddContact = async () => {
@@ -218,26 +190,10 @@ export default function ProspectsPage() {
       if (res.ok) {
         setShowAddContactModal(false);
         setNewContact({ email: '', name: '', role: '' });
-        // Trigger a refresh of the detail panel
         setSelectedProspect({ ...selectedProspect, contact_count: selectedProspect.contact_count + 1 });
       }
     } catch (error) {
       console.error('Error adding contact:', error);
-    }
-  };
-
-  // Get current prospects based on active tab
-  const getCurrentProspects = (): Prospect[] => {
-    if (activeTab === 'pending') {
-      return [
-        ...groupedProspects.broken_link,
-        ...groupedProspects.research_citation,
-        ...groupedProspects.guest_post,
-      ];
-    } else if (activeTab === 'approved') {
-      return approvedProspects;
-    } else {
-      return completedProspects;
     }
   };
 
@@ -255,13 +211,21 @@ export default function ProspectsPage() {
       <KeywordConfig />
 
       {/* Tabs */}
-      <div className="mb-6">
+      <div className="mb-4">
         <ProspectTabs
           activeTab={activeTab}
           onTabChange={handleTabChange}
           counts={counts}
         />
       </div>
+
+      {/* Filter Bar */}
+      <ProspectFilterBar
+        filters={filters}
+        onChange={setFilters}
+        accentColor="blue"
+        resultCount={prospects.length}
+      />
 
       {/* Main Content */}
       <div className="grid grid-cols-12 gap-6">
@@ -284,23 +248,13 @@ export default function ProspectsPage() {
                 />
                 <ProspectSection
                   title="Research Citations"
-                  prospects={groupedProspects.research_citation.slice(0, displayLimit)}
+                  prospects={groupedProspects.research_citation}
                   selectedId={selectedProspect?.id || null}
                   checkedIds={checkedIds}
                   onSelect={handleSelectProspect}
                   onToggleCheck={handleToggleCheck}
                   onSelectAll={handleSelectAll}
                 />
-                {groupedProspects.research_citation.length > displayLimit && (
-                  <div className="text-center py-4">
-                    <button
-                      onClick={() => setDisplayLimit(prev => prev + 100)}
-                      className="btn btn-secondary"
-                    >
-                      Load More ({groupedProspects.research_citation.length - displayLimit} remaining)
-                    </button>
-                  </div>
-                )}
                 <ProspectSection
                   title="Guest Posts"
                   prospects={groupedProspects.guest_post}
@@ -310,7 +264,7 @@ export default function ProspectsPage() {
                   onToggleCheck={handleToggleCheck}
                   onSelectAll={handleSelectAll}
                 />
-                {getCurrentProspects().length === 0 && (
+                {prospects.length === 0 && (
                   <div className="text-center py-12 text-gray-500">
                     No pending prospects
                   </div>
@@ -319,12 +273,12 @@ export default function ProspectsPage() {
             ) : (
               // Flat list for approved/completed
               <div className="space-y-2">
-                {getCurrentProspects().length === 0 ? (
+                {prospects.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">
                     No {activeTab} prospects
                   </div>
                 ) : (
-                  getCurrentProspects().map((prospect) => (
+                  prospects.map((prospect) => (
                     <div
                       key={prospect.id}
                       onClick={() => handleSelectProspect(prospect)}

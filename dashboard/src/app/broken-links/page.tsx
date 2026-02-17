@@ -3,36 +3,32 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ProspectDetail, BulkActionBar } from '../../components/prospects';
 import FetchDataModal, { FetchParams } from '../../components/FetchDataModal';
+import ProspectFilterBar, { ProspectFilters, defaultFilters, filtersToQueryString } from '../../components/ProspectFilterBar';
 import type { Prospect } from '../../lib/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
 export default function BrokenLinksPage() {
-  const [activeTab, setActiveTab] = useState<'new' | 'pending' | 'approved' | 'completed'>('new');
+  const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'completed'>('pending');
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [selectedProspect, setSelectedProspect] = useState<Prospect | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [bulkLoading, setBulkLoading] = useState(false);
-  const [counts, setCounts] = useState({ new: 0, pending: 0, approved: 0, completed: 0 });
+  const [counts, setCounts] = useState({ pending: 0, approved: 0, completed: 0 });
   const [fetching, setFetching] = useState(false);
   const [fetchResult, setFetchResult] = useState<{ success: boolean; message: string } | null>(null);
   const [showFetchModal, setShowFetchModal] = useState(false);
+  const [filters, setFilters] = useState<ProspectFilters>(defaultFilters);
 
   const fetchProspects = useCallback(async () => {
     setLoading(true);
     try {
-      // "new" tab: status=new (freshly fetched, never reviewed)
-      // "pending" tab: approval_status=pending, status != new (reviewed but not decided)
-      // "approved" tab: approval_status=approved, no outcome
-      // "completed" tab: approval_status=approved, has outcome
       let url: string;
-      if (activeTab === 'new') {
-        url = `${API_BASE}/prospects?opportunity_type=broken_link&status=new`;
-      } else if (activeTab === 'completed') {
-        url = `${API_BASE}/prospects?opportunity_type=broken_link&approval_status=approved`;
+      if (activeTab === 'completed') {
+        url = `${API_BASE}/prospects?opportunity_type=broken_link&approval_status=approved${filtersToQueryString(filters)}`;
       } else {
-        url = `${API_BASE}/prospects?opportunity_type=broken_link&approval_status=${activeTab}`;
+        url = `${API_BASE}/prospects?opportunity_type=broken_link&approval_status=${activeTab}${filtersToQueryString(filters)}`;
       }
 
       const res = await fetch(url);
@@ -52,17 +48,15 @@ export default function BrokenLinksPage() {
       console.error('Error fetching prospects:', error);
     }
     setLoading(false);
-  }, [activeTab]);
+  }, [activeTab, filters]);
 
   const fetchCounts = useCallback(async () => {
     try {
-      const [newRes, pendingRes, approvedRes] = await Promise.all([
-        fetch(`${API_BASE}/prospects?opportunity_type=broken_link&status=new`),
+      const [pendingRes, approvedRes] = await Promise.all([
         fetch(`${API_BASE}/prospects?opportunity_type=broken_link&approval_status=pending`),
         fetch(`${API_BASE}/prospects?opportunity_type=broken_link&approval_status=approved`),
       ]);
 
-      const newData = newRes.ok ? await newRes.json() : { prospects: [] };
       const pendingData = pendingRes.ok ? await pendingRes.json() : { prospects: [] };
       const approvedData = approvedRes.ok ? await approvedRes.json() : { prospects: [] };
 
@@ -71,7 +65,6 @@ export default function BrokenLinksPage() {
       const approved = approvedProspects.filter((p: Prospect) => p.outcome_tag === null).length;
 
       setCounts({
-        new: newData.prospects?.length || 0,
         pending: pendingData.prospects?.length || 0,
         approved,
         completed,
@@ -199,7 +192,6 @@ export default function BrokenLinksPage() {
   };
 
   const tabs = [
-    { id: 'new' as const, label: 'New', count: counts.new },
     { id: 'pending' as const, label: 'Pending Review', count: counts.pending },
     { id: 'approved' as const, label: 'Ready to Send', count: counts.approved },
     { id: 'completed' as const, label: 'Completed', count: counts.completed },
@@ -274,7 +266,7 @@ export default function BrokenLinksPage() {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b border-gray-200 mb-4">
         <nav className="-mb-px flex space-x-8">
           {tabs.map((tab) => (
             <button
@@ -283,6 +275,7 @@ export default function BrokenLinksPage() {
                 setActiveTab(tab.id);
                 setSelectedProspect(null);
                 setCheckedIds(new Set());
+                setFilters(defaultFilters);
               }}
               className={`
                 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm
@@ -303,13 +296,21 @@ export default function BrokenLinksPage() {
         </nav>
       </div>
 
+      {/* Filter Bar */}
+      <ProspectFilterBar
+        filters={filters}
+        onChange={setFilters}
+        accentColor="orange"
+        resultCount={prospects.length}
+      />
+
       {/* Main Content */}
       <div className="grid grid-cols-12 gap-6">
         {/* Prospect List */}
         <div className="col-span-5">
           <div className="card p-4">
             {/* Select All */}
-            {(activeTab === 'new' || activeTab === 'pending') && prospects.length > 0 && (
+            {activeTab === 'pending' && prospects.length > 0 && (
               <div className="flex items-center justify-between mb-4 pb-3 border-b">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -346,7 +347,7 @@ export default function BrokenLinksPage() {
                     `}
                   >
                     <div className="flex items-start gap-3">
-                      {(activeTab === 'new' || activeTab === 'pending') && (
+                      {activeTab === 'pending' && (
                         <input
                           type="checkbox"
                           checked={checkedIds.has(prospect.id)}

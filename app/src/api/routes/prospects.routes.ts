@@ -456,19 +456,87 @@ router.post('/bulk-action', async (req: Request, res: Response) => {
   }
 });
 
+// Shared filter builder for prospect queries
+// prefix: table alias like 'p.' for JOINed queries, or '' for simple queries
+function buildProspectFilters(query: Record<string, unknown>, prefix = '') {
+  const clauses: string[] = [];
+  const params: unknown[] = [];
+  let idx = 1;
+
+  const { status, approval_status, opportunity_type, min_score, max_score,
+    min_da, max_da, date_from, date_to, search, is_dofollow,
+    has_article_match, filter_status } = query;
+
+  if (status && status !== 'all') {
+    clauses.push(`${prefix}status = $${idx++}`);
+    params.push(status);
+  }
+  if (approval_status && approval_status !== 'all') {
+    clauses.push(`${prefix}approval_status = $${idx++}`);
+    params.push(approval_status);
+  }
+  if (opportunity_type && opportunity_type !== 'all') {
+    clauses.push(`${prefix}opportunity_type = $${idx++}`);
+    params.push(opportunity_type);
+  }
+  if (min_score) {
+    clauses.push(`${prefix}quality_score >= $${idx++}`);
+    params.push(parseFloat(min_score as string));
+  }
+  if (max_score) {
+    clauses.push(`${prefix}quality_score <= $${idx++}`);
+    params.push(parseFloat(max_score as string));
+  }
+  if (min_da) {
+    clauses.push(`${prefix}domain_authority >= $${idx++}`);
+    params.push(parseFloat(min_da as string));
+  }
+  if (max_da) {
+    clauses.push(`${prefix}domain_authority <= $${idx++}`);
+    params.push(parseFloat(max_da as string));
+  }
+  if (date_from) {
+    clauses.push(`${prefix}created_at >= $${idx++}`);
+    params.push(date_from as string);
+  }
+  if (date_to) {
+    clauses.push(`${prefix}created_at <= $${idx++}`);
+    params.push(date_to as string);
+  }
+  if (search) {
+    clauses.push(`${prefix}domain ILIKE $${idx++}`);
+    params.push(`%${search}%`);
+  }
+  if (is_dofollow === 'true') {
+    clauses.push(`${prefix}is_dofollow = true`);
+  } else if (is_dofollow === 'false') {
+    clauses.push(`(${prefix}is_dofollow = false OR ${prefix}is_dofollow IS NULL)`);
+  }
+  if (has_article_match === 'true') {
+    clauses.push(`${prefix}suggested_article_url IS NOT NULL`);
+  } else if (has_article_match === 'false') {
+    clauses.push(`${prefix}suggested_article_url IS NULL`);
+  }
+  if (filter_status && filter_status !== 'all') {
+    clauses.push(`${prefix}filter_status = $${idx++}`);
+    params.push(filter_status);
+  }
+
+  return { clauses, params, nextIndex: idx };
+}
+
 // GET /api/v1/prospects - List all prospects with filters
 router.get('/', async (req: Request, res: Response) => {
   try {
     const {
-      status,
-      approval_status,
-      opportunity_type,
-      min_score,
       limit = '1000',
       offset = '0',
       sort_by = 'quality_score',
       sort_order = 'desc',
     } = req.query;
+
+    const { clauses, params, nextIndex } = buildProspectFilters(req.query, 'p.');
+    let paramIndex = nextIndex;
 
     let query = `
       SELECT
@@ -478,33 +546,15 @@ router.get('/', async (req: Request, res: Response) => {
       LEFT JOIN contacts c ON c.prospect_id = p.id
       WHERE p.deleted_at IS NULL
     `;
-    const params: unknown[] = [];
-    let paramIndex = 1;
 
-    if (status && status !== 'all') {
-      query += ` AND p.status = $${paramIndex++}`;
-      params.push(status);
-    }
-
-    if (approval_status && approval_status !== 'all') {
-      query += ` AND p.approval_status = $${paramIndex++}`;
-      params.push(approval_status);
-    }
-
-    if (opportunity_type && opportunity_type !== 'all') {
-      query += ` AND p.opportunity_type = $${paramIndex++}`;
-      params.push(opportunity_type);
-    }
-
-    if (min_score) {
-      query += ` AND p.quality_score >= $${paramIndex++}`;
-      params.push(parseFloat(min_score as string));
+    if (clauses.length > 0) {
+      query += ` AND ` + clauses.join(' AND ');
     }
 
     query += ` GROUP BY p.id`;
 
     // Sorting
-    const validSortFields = ['quality_score', 'domain_authority', 'created_at'];
+    const validSortFields = ['quality_score', 'domain_authority', 'created_at', 'filter_score'];
     const sortField = validSortFields.includes(sort_by as string) ? sort_by : 'quality_score';
     const order = sort_order === 'asc' ? 'ASC' : 'DESC';
     query += ` ORDER BY p.${sortField} ${order} NULLS LAST`;
@@ -515,25 +565,14 @@ router.get('/', async (req: Request, res: Response) => {
 
     const result = await db.query(query, params);
 
-    // Get total count
+    // Get total count (reuse the same filter builder, no table prefix)
+    const countFilter = buildProspectFilters(req.query);
     let countQuery = `SELECT COUNT(*) FROM prospects WHERE deleted_at IS NULL`;
-    const countParams: unknown[] = [];
-    let countParamIndex = 1;
-
-    if (status && status !== 'all') {
-      countQuery += ` AND status = $${countParamIndex++}`;
-      countParams.push(status);
-    }
-    if (approval_status && approval_status !== 'all') {
-      countQuery += ` AND approval_status = $${countParamIndex++}`;
-      countParams.push(approval_status);
-    }
-    if (opportunity_type && opportunity_type !== 'all') {
-      countQuery += ` AND opportunity_type = $${countParamIndex++}`;
-      countParams.push(opportunity_type);
+    if (countFilter.clauses.length > 0) {
+      countQuery += ` AND ` + countFilter.clauses.join(' AND ');
     }
 
-    const countResult = await db.query(countQuery, countParams);
+    const countResult = await db.query(countQuery, countFilter.params);
 
     res.json({
       prospects: result.rows,

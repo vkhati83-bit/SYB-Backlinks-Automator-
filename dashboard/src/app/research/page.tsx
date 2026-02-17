@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ProspectDetail, BulkActionBar } from '../../components/prospects';
 import FetchDataModal, { FetchParams } from '../../components/FetchDataModal';
+import ProspectFilterBar, { ProspectFilters, defaultFilters, filtersToQueryString } from '../../components/ProspectFilterBar';
 import type { Prospect } from '../../lib/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
@@ -19,12 +20,13 @@ export default function ResearchCitationsPage() {
   const [fetchResult, setFetchResult] = useState<{ success: boolean; message: string } | null>(null);
   const [findingContacts, setFindingContacts] = useState(false);
   const [showFetchModal, setShowFetchModal] = useState(false);
+  const [filters, setFilters] = useState<ProspectFilters>(defaultFilters);
 
   const fetchProspects = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(
-        `${API_BASE}/prospects?opportunity_type=research_citation&approval_status=${activeTab === 'completed' ? 'approved' : activeTab}&limit=1000`
+        `${API_BASE}/prospects?opportunity_type=research_citation&approval_status=${activeTab === 'completed' ? 'approved' : activeTab}&limit=1000${filtersToQueryString(filters)}`
       );
       if (res.ok) {
         const data = await res.json();
@@ -43,7 +45,7 @@ export default function ResearchCitationsPage() {
       console.error('Error fetching prospects:', error);
     }
     setLoading(false);
-  }, [activeTab]);
+  }, [activeTab, filters]);
 
   const fetchCounts = useCallback(async () => {
     try {
@@ -280,7 +282,7 @@ export default function ResearchCitationsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
+      <div className="border-b border-gray-200 mb-4">
         <nav className="-mb-px flex space-x-8">
           {tabs.map((tab) => (
             <button
@@ -289,6 +291,7 @@ export default function ResearchCitationsPage() {
                 setActiveTab(tab.id);
                 setSelectedProspect(null);
                 setCheckedIds(new Set());
+                setFilters(defaultFilters);
               }}
               className={`
                 whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm
@@ -308,6 +311,14 @@ export default function ResearchCitationsPage() {
           ))}
         </nav>
       </div>
+
+      {/* Filter Bar */}
+      <ProspectFilterBar
+        filters={filters}
+        onChange={setFilters}
+        accentColor="blue"
+        resultCount={prospects.length}
+      />
 
       {/* Main Content */}
       <div className="grid grid-cols-12 gap-6">
