@@ -17,6 +17,7 @@ import { validateEmail } from './email-validator.service.js';
 import { scoreAndRankContacts, selectBestContacts, type ScoredContact } from './decision-maker.service.js';
 
 const HUNTER_API_KEY = process.env.HUNTER_API_KEY;
+const APOLLO_API_KEY = process.env.APOLLO_API_KEY;
 const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
 const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX;
 const CLEARBIT_API_KEY = process.env.CLEARBIT_API_KEY;
@@ -185,6 +186,160 @@ async function findEmailByName(name: string, domain: string): Promise<{
 }
 
 /**
+ * Apollo.io — Search for people at a domain (FREE, no credits)
+ * Returns names, titles, LinkedIn URLs but NOT emails
+ */
+async function apolloSearchPeople(domain: string): Promise<Array<{
+  first_name: string;
+  last_name: string;
+  name: string;
+  title?: string;
+  linkedin_url?: string;
+  id: string;
+}>> {
+  if (!APOLLO_API_KEY) {
+    logger.debug('Apollo not configured, skipping');
+    return [];
+  }
+
+  try {
+    const response = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+        'x-api-key': APOLLO_API_KEY,
+      },
+      body: JSON.stringify({
+        q_organization_domains: domain,
+        page: 1,
+        per_page: 10,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      logger.debug(`Apollo search returned ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json() as any;
+    const people = data.people || [];
+
+    const results = people
+      .filter((p: any) => p.first_name && p.last_name)
+      .map((p: any) => ({
+        first_name: p.first_name,
+        last_name: p.last_name,
+        name: `${p.first_name} ${p.last_name}`,
+        title: p.title || undefined,
+        linkedin_url: p.linkedin_url || undefined,
+        id: p.id,
+      }));
+
+    if (results.length > 0) {
+      logger.info(`Apollo search found ${results.length} people at ${domain}`);
+    }
+    return results;
+  } catch (error) {
+    logger.error('Apollo people search failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Apollo.io — Enrich a person to get their email (costs 1 credit)
+ */
+async function apolloEnrichPerson(firstName: string, lastName: string, domain: string): Promise<{
+  email?: string;
+  title?: string;
+  linkedin_url?: string;
+  cost_cents: number;
+}> {
+  if (!APOLLO_API_KEY) {
+    return { cost_cents: 0 };
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.apollo.io/api/v1/people/match?first_name=${encodeURIComponent(firstName)}&last_name=${encodeURIComponent(lastName)}&domain=${encodeURIComponent(domain)}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': APOLLO_API_KEY,
+        },
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+
+    if (!response.ok) {
+      logger.debug(`Apollo enrich returned ${response.status}`);
+      return { cost_cents: 1 };
+    }
+
+    const data = await response.json() as any;
+    const person = data.person;
+
+    if (person?.email) {
+      logger.info(`Apollo found email for ${firstName} ${lastName} @ ${domain}: ${person.email}`);
+      return {
+        email: person.email,
+        title: person.title || undefined,
+        linkedin_url: person.linkedin_url || undefined,
+        cost_cents: 1,
+      };
+    }
+
+    return { cost_cents: 1 };
+  } catch (error) {
+    logger.error('Apollo enrich failed:', error);
+    return { cost_cents: 0 };
+  }
+}
+
+/**
+ * Apollo.io — Full flow: search people (free) then enrich top matches (1 credit each)
+ */
+async function searchWithApollo(domain: string): Promise<{
+  contacts: any[];
+  cost_cents: number;
+}> {
+  // Step 1: Free search to find people at this domain
+  const people = await apolloSearchPeople(domain);
+  if (people.length === 0) {
+    return { contacts: [], cost_cents: 0 };
+  }
+
+  // Step 2: Enrich top 2 people to get their emails (1 credit each)
+  const contacts: any[] = [];
+  let cost = 0;
+
+  for (const person of people.slice(0, 2)) {
+    const result = await apolloEnrichPerson(person.first_name, person.last_name, domain);
+    cost += result.cost_cents;
+
+    if (result.email) {
+      contacts.push({
+        email: result.email,
+        name: person.name,
+        title: result.title || person.title,
+        role: result.title || person.title,
+        linkedin_url: result.linkedin_url || person.linkedin_url,
+        source: 'apollo',
+        source_metadata: { apollo_id: person.id },
+      });
+    }
+  }
+
+  if (contacts.length > 0) {
+    logger.info(`Apollo found ${contacts.length} contacts for ${domain} (cost: ${cost} credits)`);
+  }
+
+  return { contacts, cost_cents: cost };
+}
+
+/**
  * Main contact intelligence function
  * Implements progressive enhancement with cost controls
  */
@@ -222,9 +377,21 @@ export async function findContactsForProspect(
     logger.info(`Stage 1: Added ${scrapedContacts.length} scraped contacts`);
   }
 
-  // Stage 2: Hunter.io Domain Search — LAST RESORT only when all free scraping found nothing
+  // Stage 2: Apollo.io — search people (free) then enrich (1 credit each)
   if (allContacts.length === 0 && totalCost < MAX_COST_PER_PROSPECT_CENTS) {
-    logger.info(`Stage 2: All free methods failed for ${domain}, falling back to Hunter.io`);
+    logger.info(`Stage 2: Trying Apollo.io for ${domain}`);
+    const apolloResult = await searchWithApollo(domain);
+    if (apolloResult.contacts.length > 0) {
+      allContacts.push(...apolloResult.contacts);
+      totalCost += apolloResult.cost_cents;
+      sourcesUsed.push('apollo');
+      logger.info(`Stage 2: Apollo found ${apolloResult.contacts.length} contacts`);
+    }
+  }
+
+  // Stage 3: Hunter.io Domain Search — LAST RESORT only when Apollo also found nothing
+  if (allContacts.length === 0 && totalCost < MAX_COST_PER_PROSPECT_CENTS) {
+    logger.info(`Stage 3: All free methods + Apollo failed for ${domain}, falling back to Hunter.io`);
     const hunterResult = await searchWithHunter(domain);
     if (hunterResult.contacts.length > 0) {
       allContacts.push(...hunterResult.contacts);
@@ -234,7 +401,7 @@ export async function findContactsForProspect(
     }
   }
 
-  // Stage 3: Google LinkedIn Search — only if Hunter also found nothing
+  // Stage 4: Google LinkedIn Search — only if everything else found nothing
   if (allContacts.length === 0 && totalCost < MAX_COST_PER_PROSPECT_CENTS) {
     const linkedinResult = await searchLinkedInProfiles(domain);
     if (linkedinResult.contacts.length > 0) {
@@ -258,13 +425,13 @@ export async function findContactsForProspect(
     }
   }
 
-  // Stage 4: Score and rank all contacts
+  // Stage 5: Score and rank all contacts
   const scoredContacts = scoreAndRankContacts(allContacts);
 
-  // Stage 5: Select best 1-2 contacts
+  // Stage 6: Select best 1-2 contacts
   const selectedContacts = selectBestContacts(scoredContacts, 2);
 
-  // Stage 6: Validate emails for selected contacts (if budget allows)
+  // Stage 7: Validate emails for selected contacts (if budget allows)
   const finalContacts = [];
   for (const contact of selectedContacts) {
     if (contact.email) {
