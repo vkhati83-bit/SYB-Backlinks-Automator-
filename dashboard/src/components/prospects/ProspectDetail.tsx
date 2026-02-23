@@ -55,6 +55,7 @@ export default function ProspectDetail({
   const [editedBody, setEditedBody] = useState('');
   const [composeError, setComposeError] = useState<string | null>(null);
   const [findingEmails, setFindingEmails] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -236,6 +237,24 @@ export default function ProspectDetail({
       console.error('Error using contact:', error);
       alert('Failed to use contact');
     }
+  };
+
+  const handleApprove = async () => {
+    setApproving(true);
+    try {
+      const res = await fetch(`${API_BASE}/prospects/${prospect.id}/approval`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approval_status: 'approved' }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        onUpdate({ ...prospect, approval_status: updated.approval_status });
+      }
+    } catch (error) {
+      console.error('Error approving prospect:', error);
+    }
+    setApproving(false);
   };
 
   const handleComposeEmail = async () => {
@@ -587,6 +606,15 @@ export default function ProspectDetail({
 
       {/* Actions */}
       <div className="flex gap-2 pt-4 border-t border-gray-100">
+        {prospect.approval_status !== 'approved' && (
+          <button
+            onClick={handleApprove}
+            disabled={approving}
+            className="btn btn-primary flex-1"
+          >
+            {approving ? 'Approving...' : 'Approve'}
+          </button>
+        )}
         {prospect.approval_status === 'approved' && (
           <button
             onClick={handleComposeEmail}

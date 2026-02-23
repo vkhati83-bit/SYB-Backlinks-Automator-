@@ -94,7 +94,8 @@ CONTACT:
 - Email: ${input.contactEmail}
 
 INSTRUCTIONS:
-1. Open by referencing their specific article by name and include their article URL (${input.prospectUrl}) so they know exactly which piece you mean.
+1. The FIRST sentence of the body MUST reference their article by name AND include this exact URL: ${input.prospectUrl}
+   Format example: I read your article "[Title]" (${input.prospectUrl}) and ...
 2. Mention that SYB maintains a curated page of peer-reviewed studies: "${researchLabel}" — a free resource they can cite to strengthen their article.
 3. Where the research page URL should appear, write the exact placeholder text: [RESEARCH_URL]
    This placeholder is REQUIRED and will be replaced automatically. Do NOT write any real URL in its place.
@@ -152,8 +153,8 @@ async function generateBrokenLinkEmail(input: EmailGenerationInput): Promise<Gen
     : '';
 
   const pitch = input.suggestedArticleUrl
-    ? `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a replacement — it covers the same topic the broken link was about. Be helpful, not opportunistic.`
-    : `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our research database (shieldyourbody.com/research) as a relevant replacement resource. Be helpful, not opportunistic.`;
+    ? `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a replacement — it covers the same topic the broken link was about. After mentioning what the article covers, include a reference to our research database using the exact placeholder [RESEARCH_URL] (e.g. "backed by our EMF research database at [RESEARCH_URL]"). Be helpful, not opportunistic.`
+    : `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our research database at [RESEARCH_URL] as a relevant replacement resource. Be helpful, not opportunistic.`;
 
   const templateSection = input.emailTemplate
     ? `\nEMAIL TEMPLATE TO FOLLOW:\nFollow this structure exactly. Fill in all {{placeholders}} with contextually appropriate content based on the prospect and contact info above.\n\n${input.emailTemplate}\n`
@@ -173,10 +174,18 @@ CONTACT:
 
 PITCH:
 ${pitch}
+
+IMPORTANT: The placeholder [RESEARCH_URL] MUST appear in the body exactly as written — it will be replaced automatically with the real URL. Do NOT write any real URL in its place.
 ${templateSection}
 Generate a JSON response with "subject" and "body" fields.`;
 
-  return generateEmail(prompt);
+  const result = await generateEmail(prompt);
+
+  // Inject the actual research URL — Claude only wrote the placeholder
+  result.body = result.body.replace(/\[RESEARCH_URL\]/g, 'https://shieldyourbody.com/research');
+  result.subject = result.subject.replace(/\[RESEARCH_URL\]/g, 'https://shieldyourbody.com/research');
+
+  return result;
 }
 
 // Core email generation function
