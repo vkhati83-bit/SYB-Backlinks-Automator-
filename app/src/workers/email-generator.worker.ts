@@ -56,10 +56,14 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     if (researchMatch) {
       researchCategoryName = researchMatch.category_name;
       researchStudyCount = researchMatch.study_count;
-      // Override: point to the specific research category page, not a blog article
       suggestedArticleUrl = `https://shieldyourbody.com/research?category=${researchMatch.slug}`;
       suggestedArticleTitle = `${researchMatch.category_name} Research (${researchMatch.study_count}+ peer-reviewed studies)`;
       matchReason = researchMatch.ai_synthesis || `Directly relevant to their ${researchMatch.category_name.toLowerCase()} content`;
+    } else {
+      // Always point to research DB for research_citation, never a blog article
+      suggestedArticleUrl = 'https://shieldyourbody.com/research';
+      suggestedArticleTitle = 'SYB EMF Research Database (3,600+ peer-reviewed studies)';
+      matchReason = matchReason || 'Relevant EMF research they can cite';
     }
   }
 
