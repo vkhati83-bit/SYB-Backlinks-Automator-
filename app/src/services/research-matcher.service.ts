@@ -32,6 +32,8 @@ function extractCandidateTerms(title: string, keyword: string, url: string): str
     'smart meter', 'power line', 'microwave', 'radar',
     'laptop', 'tablet', 'computer', 'router',
     'airplane mode', 'flight mode',
+    'pemf', 'pulsed electromagnetic', 'transcranial',
+    'wireless radiation', 'radiofrequency radiation',
   ];
   for (const t of techTerms) {
     if (text.includes(t)) terms.push(t);
@@ -53,6 +55,12 @@ function extractCandidateTerms(title: string, keyword: string, url: string): str
     'more', 'than', 'when', 'will', 'what', 'about', 'which', 'those',
     'these', 'where', 'level', 'highest', 'phone', 'study', 'review',
     'article', 'blog', 'guide', 'tips', 'ways', 'best', 'does', 'into',
+    // verb/adverb fragments that appear in titles but mean nothing in a study search
+    'longer', 'protects', 'against', 'using', 'while', 'after', 'before',
+    'under', 'other', 'every', 'always', 'never', 'still', 'should',
+    'their', 'there', 'really', 'right', 'wrong', 'cause', 'causes',
+    'could', 'would', 'might', 'helps', 'affect', 'effects', 'effect',
+    'health', 'risks', 'risk', 'safe', 'safety', 'know', 'explains',
   ]);
   const titleWords = title.toLowerCase()
     .split(/[\s\-_,.:!?()\[\]"]+/)
