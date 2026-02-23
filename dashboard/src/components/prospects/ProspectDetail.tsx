@@ -45,8 +45,10 @@ export default function ProspectDetail({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showComposeModal, setShowComposeModal] = useState(false);
-  const [composing, setComposing] = useState(false);
+  type ModalState = 'idle' | 'generating' | 'ready' | 'sending' | 'sent';
+  const [modalState, setModalState] = useState<ModalState>('idle');
   const [generatedEmail, setGeneratedEmail] = useState<{ subject: string; body: string } | null>(null);
+  const [sentEmailId, setSentEmailId] = useState<string | null>(null);
   const [editedSubject, setEditedSubject] = useState('');
   const [editedBody, setEditedBody] = useState('');
   const [composeError, setComposeError] = useState<string | null>(null);
@@ -235,9 +237,10 @@ export default function ProspectDetail({
     }
 
     setShowComposeModal(true);
-    setComposing(true);
+    setModalState('generating');
     setComposeError(null);
     setGeneratedEmail(null);
+    setSentEmailId(null);
 
     try {
       const res = await fetch(`${API_BASE}/emails/generate`, {
@@ -254,24 +257,26 @@ export default function ProspectDetail({
         setGeneratedEmail({ subject: data.subject, body: data.body });
         setEditedSubject(data.subject);
         setEditedBody(data.body);
+        setModalState('ready');
       } else {
         const errorData = await res.json();
         const errorMsg = errorData.details
           ? `${errorData.error}: ${errorData.details}`
           : errorData.error || 'Failed to generate email';
         setComposeError(errorMsg);
+        setModalState('idle');
       }
     } catch (error) {
       setComposeError('Failed to connect to server. Is the backend running?');
+      setModalState('idle');
     }
-    setComposing(false);
   };
 
   const handleSendEmail = async () => {
     const primaryContact = contacts.find(c => c.is_primary) || contacts[0];
     if (!primaryContact || !generatedEmail) return;
 
-    setComposing(true);
+    setModalState('sending');
     try {
       const res = await fetch(`${API_BASE}/emails/send`, {
         method: 'POST',
@@ -285,16 +290,18 @@ export default function ProspectDetail({
       });
 
       if (res.ok) {
-        setShowComposeModal(false);
-        setGeneratedEmail(null);
+        const data = await res.json();
+        setSentEmailId(data.id || null);
+        setModalState('sent');
       } else {
         const error = await res.json();
         setComposeError(error.message || 'Failed to send email');
+        setModalState('ready');
       }
     } catch (error) {
       setComposeError('Failed to connect to server');
+      setModalState('ready');
     }
-    setComposing(false);
   };
 
   const isBrokenLink = prospect.opportunity_type === 'broken_link';
@@ -543,6 +550,8 @@ export default function ProspectDetail({
                   setShowComposeModal(false);
                   setGeneratedEmail(null);
                   setComposeError(null);
+                  setModalState('idle');
+                  setSentEmailId(null);
                 }}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -553,16 +562,14 @@ export default function ProspectDetail({
             </div>
 
             <div className="p-4 overflow-y-auto max-h-[calc(90vh-140px)]">
-              {composing && !generatedEmail ? (
+              {modalState === 'generating' && (
                 <div className="text-center py-12">
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500 mb-4"></div>
                   <p className="text-gray-600">Generating personalized email with Claude...</p>
                 </div>
-              ) : composeError ? (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-                  {composeError}
-                </div>
-              ) : generatedEmail ? (
+              )}
+
+              {modalState === 'ready' && !composeError && generatedEmail && (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
@@ -570,7 +577,6 @@ export default function ProspectDetail({
                       {contacts.find(c => c.is_primary)?.email || contacts[0]?.email}
                     </div>
                   </div>
-
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
                     <input
@@ -580,7 +586,6 @@ export default function ProspectDetail({
                       className="input w-full"
                     />
                   </div>
-
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Body</label>
                     <textarea
@@ -591,21 +596,73 @@ export default function ProspectDetail({
                     />
                   </div>
                 </div>
-              ) : null}
+              )}
+
+              {composeError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+                  {composeError}
+                </div>
+              )}
+
+              {modalState === 'sending' && (
+                <div className="text-center py-12">
+                  <div className="mb-4 flex justify-center">
+                    <svg
+                      className="w-16 h-16 text-primary-500 animate-bounce"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={1.5}
+                        d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                      />
+                    </svg>
+                  </div>
+                  <p className="text-gray-600 font-medium">Sending to {prospect.domain}...</p>
+                  <p className="text-gray-400 text-sm mt-1">This usually takes a few seconds</p>
+                </div>
+              )}
+
+              {modalState === 'sent' && (
+                <div className="text-center py-12">
+                  <div className="mb-4 flex justify-center">
+                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+                      <svg
+                        className="w-10 h-10 text-green-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M5 13l4 4L19 7"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                  <p className="text-gray-900 font-semibold text-lg">Email sent!</p>
+                  <p className="text-gray-500 mt-1">Successfully sent to {prospect.domain}</p>
+                </div>
+              )}
             </div>
 
-            {generatedEmail && (
+            {(modalState === 'ready' || modalState === 'sending') && !composeError && (
               <div className="p-4 border-t border-gray-200 flex gap-3">
                 <button
                   onClick={handleSendEmail}
-                  disabled={composing}
+                  disabled={modalState === 'sending'}
                   className="btn btn-primary flex-1"
                 >
-                  {composing ? 'Sending...' : 'Queue for Review'}
+                  {modalState === 'sending' ? 'Sending...' : 'Send'}
                 </button>
                 <button
                   onClick={handleComposeEmail}
-                  disabled={composing}
+                  disabled={modalState === 'sending'}
                   className="btn btn-secondary"
                 >
                   Regenerate
@@ -614,7 +671,9 @@ export default function ProspectDetail({
                   onClick={() => {
                     setShowComposeModal(false);
                     setGeneratedEmail(null);
+                    setModalState('idle');
                   }}
+                  disabled={modalState === 'sending'}
                   className="btn btn-secondary"
                 >
                   Cancel
