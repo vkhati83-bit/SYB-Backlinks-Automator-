@@ -13,6 +13,7 @@ const navItems = [
   { href: '/trash', icon: 'trash', label: 'Trash', badge: 'trashCount' },
   { href: '/campaigns', icon: 'folder', label: 'Campaigns' },
   { href: '/responses', icon: 'mail', label: 'Responses' },
+  { href: '/sent', icon: 'send', label: 'Sent' },
   { href: '/metrics', icon: 'chart', label: 'Metrics' },
   { href: '/settings', icon: 'settings', label: 'Settings' },
 ];
@@ -67,6 +68,11 @@ const icons: Record<string, JSX.Element> = {
   trash: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  ),
+  send: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
     </svg>
   ),
 };

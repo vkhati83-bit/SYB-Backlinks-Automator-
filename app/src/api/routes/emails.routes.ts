@@ -274,4 +274,96 @@ router.post('/:id/regenerate', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/v1/emails/sent - List sent emails with link check status
+router.get('/sent', async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = (page - 1) * limit;
+
+    const result = await db.query(`
+      SELECT
+        e.id,
+        e.subject,
+        e.sent_at,
+        e.status,
+        c.email as contact_email,
+        c.name as contact_name,
+        p.domain,
+        p.url as prospect_url,
+        p.opportunity_type,
+        p.research_link_found,
+        p.research_link_last_checked_at
+      FROM emails e
+      JOIN prospects p ON e.prospect_id = p.id
+      LEFT JOIN contacts c ON e.contact_id = c.id
+      WHERE e.status = 'sent'
+        AND e.sent_at IS NOT NULL
+      ORDER BY e.sent_at DESC
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+
+    const countResult = await db.query(
+      `SELECT COUNT(*) as total FROM emails e WHERE e.status = 'sent' AND e.sent_at IS NOT NULL`
+    );
+
+    res.json({
+      emails: result.rows,
+      total: parseInt(countResult.rows[0].total),
+      page,
+      limit,
+    });
+  } catch (error) {
+    logger.error('Error fetching sent emails:', error);
+    res.status(500).json({ error: 'Failed to fetch sent emails' });
+  }
+});
+
+// POST /api/v1/emails/:id/check-link - Check if prospect page has a backlink to SYB research
+router.post('/:id/check-link', async (req: Request, res: Response) => {
+  try {
+    const emailId = req.params.id as string;
+
+    const result = await db.query(`
+      SELECT p.url as prospect_url, p.domain
+      FROM emails e
+      JOIN prospects p ON e.prospect_id = p.id
+      WHERE e.id = $1 AND e.status = 'sent'
+    `, [emailId]);
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Sent email not found' });
+      return;
+    }
+
+    const { prospect_url } = result.rows[0];
+
+    // Import the checkForBacklink function from the link-checker worker
+    const { checkForBacklink } = await import('../../workers/link-checker.worker.js');
+    const linkResult = await checkForBacklink(prospect_url, 'shieldyourbody.com');
+
+    // Update prospects table
+    await db.query(`
+      UPDATE prospects p
+      SET
+        research_link_found = $1,
+        research_link_last_checked_at = NOW()
+      FROM emails e
+      WHERE e.id = $2 AND e.prospect_id = p.id
+    `, [linkResult.found, emailId]);
+
+    res.json({
+      found: linkResult.found,
+      linkUrl: linkResult.linkUrl || null,
+      anchorText: linkResult.anchorText || null,
+      isDoFollow: linkResult.isDoFollow,
+      checkedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('Error checking link:', error);
+    res.status(500).json({ error: 'Failed to check link' });
+  }
+});
+
 export default router;
+

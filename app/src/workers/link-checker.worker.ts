@@ -22,7 +22,7 @@ interface LinkCheckResult {
 }
 
 // Check if a page contains a link to our target URL
-async function checkForBacklink(pageUrl: string, targetDomain: string): Promise<LinkCheckResult> {
+export async function checkForBacklink(pageUrl: string, targetDomain: string): Promise<LinkCheckResult> {
   try {
     const response = await fetch(pageUrl, {
       headers: {
@@ -173,6 +173,43 @@ export async function scheduleBacklinkChecks(): Promise<number> {
 
   if (queued > 0) {
     logger.info(`Scheduled ${queued} backlink checks`);
+  }
+
+  return queued;
+}
+
+// Schedule monthly research link checks for all sent emails
+export async function scheduleMonthlyResearchLinkChecks(): Promise<number> {
+  const result = await db.query(`
+    SELECT e.id as email_id, p.url as prospect_url
+    FROM emails e
+    JOIN prospects p ON e.prospect_id = p.id
+    WHERE e.status = 'sent'
+      AND e.sent_at IS NOT NULL
+      AND p.research_link_found IS NOT TRUE
+      AND (
+        p.research_link_last_checked_at IS NULL
+        OR p.research_link_last_checked_at < NOW() - INTERVAL '30 days'
+      )
+    LIMIT 100
+  `);
+
+  let queued = 0;
+  for (const row of result.rows) {
+    const { linkCheckerQueue } = await import('../config/queues.js');
+    await linkCheckerQueue.add('check-research-link', {
+      emailId: row.email_id,
+      prospectUrl: row.prospect_url,
+      targetUrl: 'https://shieldyourbody.com/research',
+    }, {
+      attempts: 2,
+      backoff: { type: 'fixed', delay: 5000 },
+    });
+    queued++;
+  }
+
+  if (queued > 0) {
+    logger.info(`Scheduled ${queued} monthly research link checks`);
   }
 
   return queued;
