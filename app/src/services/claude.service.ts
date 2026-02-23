@@ -58,31 +58,24 @@ IMPORTANT:
 - Include 1-2 specific details from their content to show you actually read it
 - The goal is to start a conversation, not close a deal
 
-CRITICAL URL RULE:
-- You will be given EXACT URLs to use in the email. Use them verbatim — do not modify, shorten, or replace them.
-- NEVER invent or substitute SYB URLs from your own knowledge (e.g. shieldyourbody.com/airplane-mode/, shieldyourbody.com/health-risk-cell-phones/, or any other SYB blog/product page).
-- The only SYB URLs permitted in the email are the ones explicitly provided in the prompt.`;
+URL RULE:
+- Only use URLs explicitly provided in the prompt or marked as placeholders (e.g. [RESEARCH_URL]).
+- Never invent SYB URLs from your own knowledge.`;
 
 // Generate email for research citation opportunity
 async function generateResearchCitationEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
-  const articleSection = input.suggestedArticleUrl
-    ? `\nSYB RESEARCH RESOURCE TO RECOMMEND:
-- URL: ${input.suggestedArticleUrl}
-- Title: ${input.suggestedArticleTitle || 'N/A'}
-- Why it matches: ${input.matchReason || 'Relevant to their content'}
-`
-    : '';
+  // Validate we have a real research DB URL — never allow a blog article URL through
+  const isResearchUrl = (url?: string | null) => !!url && url.includes('shieldyourbody.com/research');
+  const researchUrl = isResearchUrl(input.suggestedArticleUrl)
+    ? input.suggestedArticleUrl!
+    : 'https://shieldyourbody.com/research';
 
-  const researchStats = input.researchStudyCount
-    ? `Our research database has ${input.researchStudyCount}+ peer-reviewed studies specifically covering ${input.researchCategoryName || 'EMF health effects'}.`
-    : `Our research database contains 3,600+ peer-reviewed studies on EMF health effects.`;
-
-  const pitch = input.suggestedArticleUrl
-    ? `The target page is titled "${input.prospectTitle || input.prospectDomain}" and lives at ${input.prospectUrl}. In the email opening, reference their article by name AND include that URL (${input.prospectUrl}) so they immediately know which piece you mean. Then recommend our research resource with its EXACT title and URL — title: "${input.suggestedArticleTitle}", URL: ${input.suggestedArticleUrl}. You MUST use this exact URL verbatim. Do NOT substitute any other SYB URL. ${researchStats} Tie the research directly to the topic they are writing about.`
-    : `The target page is titled "${input.prospectTitle || input.prospectDomain}" at ${input.prospectUrl}. Reference their article by name and include that URL. ${researchStats} Recommend our research database at shieldyourbody.com/research (use this exact URL).`;
+  const researchLabel = input.researchStudyCount && input.researchCategoryName
+    ? `${input.researchCategoryName} research (${input.researchStudyCount}+ peer-reviewed studies)`
+    : `EMF research database (3,600+ peer-reviewed studies)`;
 
   const templateSection = input.emailTemplate
-    ? `\nEMAIL TEMPLATE TO FOLLOW:\nFollow this structure exactly. Fill in all {{placeholders}} with contextually appropriate content based on the prospect and contact info above.\n\n${input.emailTemplate}\n`
+    ? `\nEMAIL TEMPLATE TO FOLLOW:\nFollow this structure. Fill in {{placeholders}}. Where a research URL is needed, write the placeholder [RESEARCH_URL] exactly as shown.\n\n${input.emailTemplate}\n`
     : '';
 
   const prompt = `Write an outreach email for this research citation opportunity:
@@ -93,17 +86,28 @@ TARGET WEBSITE:
 - Page title: ${input.prospectTitle || 'Unknown'}
 - Page description: ${input.prospectDescription || 'Unknown'}
 ${input.pageContent ? `- Page content excerpt: ${input.pageContent.substring(0, 1000)}` : ''}
-${articleSection}
+
 CONTACT:
 - Name: ${input.contactName || 'Editor/Content Team'}
 - Email: ${input.contactEmail}
 
-PITCH:
-${pitch}
+INSTRUCTIONS:
+1. Open by referencing their specific article by name and include their article URL (${input.prospectUrl}) so they know exactly which piece you mean.
+2. Mention that SYB maintains a curated page of peer-reviewed studies: "${researchLabel}" — a free resource they can cite to strengthen their article.
+3. Where the research page URL should appear, write the exact placeholder text: [RESEARCH_URL]
+   This placeholder is REQUIRED and will be replaced automatically. Do NOT write any real URL in its place.
+4. Keep the email under 150 words.
+5. End with a soft, helpful CTA.
 ${templateSection}
 Generate a JSON response with "subject" and "body" fields.`;
 
-  return generateEmail(prompt);
+  const result = await generateEmail(prompt);
+
+  // Inject the actual research URL — Claude only wrote the placeholder
+  result.body = result.body.replace(/\[RESEARCH_URL\]/g, researchUrl);
+  result.subject = result.subject.replace(/\[RESEARCH_URL\]/g, researchUrl);
+
+  return result;
 }
 
 // Generate email for guest post opportunity
