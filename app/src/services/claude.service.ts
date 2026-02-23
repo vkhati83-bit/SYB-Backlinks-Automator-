@@ -57,6 +57,7 @@ IMPORTANT:
 - Subject lines should be specific and intriguing, not generic
 - Include 1-2 specific details from their content to show you actually read it
 - The goal is to start a conversation, not close a deal
+- Do NOT include a closing sign-off or signature block (no "Best regards", "Sincerely", "[Your name]", etc.) — the signature is added automatically
 
 URL RULE:
 - Only use URLs explicitly provided in the prompt or marked as placeholders (e.g. [RESEARCH_URL]).

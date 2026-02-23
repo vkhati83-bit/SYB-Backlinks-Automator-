@@ -4,6 +4,7 @@ import { db } from '../../db/index.js';
 import { emailSenderQueue } from '../../config/queues.js';
 import { generateOutreachEmail } from '../../services/claude.service.js';
 import { findResearchCategory } from '../../services/research-matcher.service.js';
+import { settingsRepository } from '../../db/repositories/index.js';
 import logger from '../../utils/logger.js';
 
 const router = Router();
@@ -82,6 +83,15 @@ router.post('/generate', async (req: Request, res: Response) => {
       researchCategoryName,
       researchStudyCount,
     });
+
+    // Append sender name + signature so the preview matches what gets sent
+    const settings = await settingsRepository.getAll();
+    const senderName = settings.sender_name || '';
+    const signature = settings.email_signature || '';
+    const signOff = [senderName, signature].filter(Boolean).join('\n');
+    if (signOff) {
+      generated.body = `${generated.body}\n\nBest regards,\n${signOff}`;
+    }
 
     res.json({
       subject: generated.subject,

@@ -47,11 +47,9 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
   // Use edited content if available
   const subject = email.edited_subject || email.subject;
 
-  // Append signature if configured
+  // Signature is already embedded at generation time; just use the body as-is
   const settings = await settingsRepository.getAll();
-  const signature = settings.email_signature || '';
-  const baseBody = email.edited_body || email.body || '';
-  const finalBody = signature ? `${baseBody}\n\n${signature}` : baseBody;
+  const finalBody = email.edited_body || email.body || '';
 
   // Send email
   const result = await sendEmail({

@@ -85,6 +85,14 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     emailTemplate: emailTemplate || undefined,
   });
 
+  // Append sender name + signature so the saved email matches what gets sent
+  const senderName = settings.sender_name || '';
+  const signature = settings.email_signature || '';
+  const signOff = [senderName, signature].filter(Boolean).join('\n');
+  if (signOff) {
+    generated.body = `${generated.body}\n\nBest regards,\n${signOff}`;
+  }
+
   // Save email to database
   const email = await emailRepository.create({
     prospect_id: prospectId,
