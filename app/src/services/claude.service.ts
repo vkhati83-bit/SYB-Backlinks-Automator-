@@ -61,7 +61,7 @@ IMPORTANT:
 // Generate email for research citation opportunity
 async function generateResearchCitationEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
   const articleSection = input.suggestedArticleUrl
-    ? `\nSUGGESTED SYB ARTICLE TO RECOMMEND:
+    ? `\nSYB RESEARCH RESOURCE TO RECOMMEND:
 - URL: ${input.suggestedArticleUrl}
 - Title: ${input.suggestedArticleTitle || 'N/A'}
 - Why it matches: ${input.matchReason || 'Relevant to their content'}
@@ -73,8 +73,8 @@ async function generateResearchCitationEmail(input: EmailGenerationInput): Promi
     : `Our research database contains 3,600+ peer-reviewed studies on EMF health effects.`;
 
   const pitch = input.suggestedArticleUrl
-    ? `The target page discusses EMF-related topics. Suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a valuable resource they could cite or link to. ${researchStats} Also mention our broader research database at shieldyourbody.com/research.`
-    : `The target page discusses EMF-related topics. ${researchStats} Suggest our research database (shieldyourbody.com/research) as a valuable resource to cite, enhancing the credibility of their content.`;
+    ? `The target page is titled "${input.prospectTitle || input.prospectDomain}" at ${input.prospectUrl}. In the email opening, reference their article by name specifically (use the page title above). Then recommend our research resource: "${input.suggestedArticleTitle}" at ${input.suggestedArticleUrl} — this is a curated page of peer-reviewed studies they can cite to strengthen their article. ${researchStats} Make the email feel personal by tying our research directly to the topic they are already writing about.`
+    : `The target page is titled "${input.prospectTitle || input.prospectDomain}" at ${input.prospectUrl}. In the email opening, reference their article by name. ${researchStats} Suggest our research database (shieldyourbody.com/research) as a resource to cite, enhancing the credibility of their content.`;
 
   const templateSection = input.emailTemplate
     ? `\nEMAIL TEMPLATE TO FOLLOW:\nFollow this structure exactly. Fill in all {{placeholders}} with contextually appropriate content based on the prospect and contact info above.\n\n${input.emailTemplate}\n`

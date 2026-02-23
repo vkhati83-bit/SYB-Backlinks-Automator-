@@ -56,9 +56,9 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     if (researchMatch) {
       researchCategoryName = researchMatch.category_name;
       researchStudyCount = researchMatch.study_count;
-      // Override: point to the research DB, not a blog article
-      suggestedArticleUrl = 'https://shieldyourbody.com/research';
-      suggestedArticleTitle = `${researchMatch.category_name} Research — ${researchMatch.study_count}+ peer-reviewed studies`;
+      // Override: point to the specific research category page, not a blog article
+      suggestedArticleUrl = `https://shieldyourbody.com/research?category=${researchMatch.slug}`;
+      suggestedArticleTitle = `${researchMatch.category_name} Research (${researchMatch.study_count}+ peer-reviewed studies)`;
       matchReason = researchMatch.ai_synthesis || `Directly relevant to their ${researchMatch.category_name.toLowerCase()} content`;
     }
   }
