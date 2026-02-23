@@ -47,7 +47,7 @@ TONE GUIDELINES:
 - Never use phrases like "I hope this email finds you well" or "I stumbled upon your article"
 
 EMAIL STRUCTURE:
-1. Opening greeting: "Hi [Name]," on its own line (use "Hi there," if no name is provided)
+1. Opening greeting: "Hi [FirstName]," on its own line — use the first name only, never the full name (use "Hi there," if no name is provided)
 2. Brief, personalized opener referencing their specific work
 3. Value proposition - how SYB's research can help their readers
 4. Soft call-to-action
@@ -218,9 +218,17 @@ async function generateEmail(prompt: string): Promise<GeneratedEmail> {
   }
 }
 
+// Extract first name from a full name string
+function firstNameOnly(name: string | null): string | null {
+  if (!name) return null;
+  return name.trim().split(/\s+/)[0];
+}
+
 // Main generation function
 export async function generateOutreachEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
   logger.info(`Generating ${input.opportunityType} email for ${input.prospectDomain}`);
+  // Use first name only so greetings read "Hi Barak," not "Hi Barak Zuman,"
+  input = { ...input, contactName: firstNameOnly(input.contactName) };
 
   switch (input.opportunityType) {
     case 'research_citation':
