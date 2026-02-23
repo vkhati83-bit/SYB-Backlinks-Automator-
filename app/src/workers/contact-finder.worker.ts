@@ -240,7 +240,58 @@ function extractAuthorLinks(html: string, origin: string): Array<{ url: string; 
   return authorLinks.slice(0, 3); // max 3 author pages
 }
 
-// Try to find contacts by scraping — article page → author pages → contact pages
+// Search DuckDuckGo for publicly indexed emails for a domain (free, no API key)
+async function searchWebForEmails(domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
+  const domainEmailRegex = new RegExp(`[a-zA-Z0-9._%+\\-]+@${domain.replace('.', '\\.')}`, 'gi');
+
+  // Two targeted queries: one for any @domain.com mention, one for explicit contact pages
+  const queries = [
+    `"@${domain}"`,
+    `contact email site:${domain}`,
+  ];
+
+  for (const query of queries) {
+    if (results.length > 0) break;
+    try {
+      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const html = await fetchPage(url);
+      if (!html) continue;
+
+      const $ = cheerio.load(html);
+
+      // Extract emails from snippet text directly
+      const snippetText = $('.result__snippet, .result__body, .result__title').map((_, el) => $(el).text()).get().join(' ');
+      const inlineMatches = snippetText.match(domainEmailRegex) || [];
+      for (const email of inlineMatches) {
+        const lowerEmail = email.toLowerCase();
+        if (isValidEmail(lowerEmail) && !results.some(r => r.email === lowerEmail)) {
+          results.push({ email: lowerEmail, name: extractName(lowerEmail, snippetText), source: 'scraped' });
+        }
+      }
+
+      // Also scan full HTML for domain-matching emails (sometimes in obfuscated text)
+      if (results.length === 0) {
+        const fullMatches = html.match(domainEmailRegex) || [];
+        for (const email of fullMatches) {
+          const lowerEmail = email.toLowerCase();
+          if (isValidEmail(lowerEmail) && !results.some(r => r.email === lowerEmail)) {
+            results.push({ email: lowerEmail, name: null, source: 'scraped' });
+          }
+        }
+      }
+    } catch (error) {
+      logger.debug(`DuckDuckGo search failed for ${domain}:`, error);
+    }
+  }
+
+  if (results.length > 0) {
+    logger.info(`DuckDuckGo found ${results.length} email(s) for ${domain}`);
+  }
+  return results;
+}
+
+// Try to find contacts by scraping — article page → author pages → contact pages → web search
 async function findContactsByScraping(
   domain: string,
   baseUrl: string
@@ -296,6 +347,13 @@ async function findContactsByScraping(
       addEmails(extractEmails(html));
       if (contacts.length > 0) break;
     }
+  }
+
+  // Step 4: Search the web for publicly indexed emails (DuckDuckGo)
+  if (contacts.length === 0) {
+    logger.debug(`No contacts found via scraping, trying web search for ${domain}`);
+    const webResults = await searchWebForEmails(domain);
+    contacts.push(...webResults);
   }
 
   return contacts;
