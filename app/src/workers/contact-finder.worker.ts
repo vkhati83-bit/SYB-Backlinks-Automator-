@@ -245,6 +245,19 @@ function extractEmails(html: string): Array<{ email: string; context: string }> 
     const code = $(el).html() || '';
     const jsMatches = code.match(EMAIL_REGEX) || [];
     for (const email of jsMatches) addEmail(email, 'JavaScript');
+
+    // 7b. JS string concatenation — catches "john" + "@" + "domain.com"
+    const concatPattern = /["']([a-zA-Z0-9._%+-]+)["']\s*\+\s*["']@["']\s*\+\s*["']([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})["']/g;
+    let concatMatch;
+    while ((concatMatch = concatPattern.exec(code)) !== null) {
+      addEmail(`${concatMatch[1]}@${concatMatch[2]}`, 'JS concatenation');
+    }
+  });
+
+  // 7c. Hidden form inputs — contact forms sometimes bake the recipient email in
+  $('input[type="hidden"], input[name*="email"], input[name*="recipient"], input[name*="to"]').each((_, el) => {
+    const val = $(el).attr('value') || '';
+    if (val.includes('@')) addEmail(val, 'hidden form input');
   });
 
   // 8. HTML comments
@@ -590,6 +603,184 @@ function extractSocialHandles(html: string): Array<{ platform: string; handle: s
   return handles.slice(0, 2);
 }
 
+// WordPress REST API — many WP sites expose user data at /wp-json/wp/v2/users
+async function checkWordPressUsers(origin: string, domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
+  try {
+    const response = await fetch(`${origin}/wp-json/wp/v2/users?per_page=10`, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; SYB Research Bot; +https://shieldyourbody.com)',
+        'Accept': 'application/json',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) return results;
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('json')) return results;
+
+    const users = await response.json() as any[];
+    if (!Array.isArray(users)) return results;
+
+    for (const user of users) {
+      // Sometimes email is directly exposed
+      if (user.email && user.email.includes('@')) {
+        const email = user.email.toLowerCase();
+        if (isValidEmail(email) && !results.some(r => r.email === email)) {
+          results.push({ email, name: user.name || null, source: 'scraped' });
+        }
+      }
+      // Check avatar/gravatar URL for email hash (not directly useful but indicates WP user)
+      // Check description/bio for emails
+      if (user.description) {
+        const descMatches = user.description.match(EMAIL_REGEX) || [];
+        for (const email of descMatches) {
+          const lower = email.toLowerCase();
+          if (isValidEmail(lower) && !results.some(r => r.email === lower)) {
+            results.push({ email: lower, name: user.name || null, source: 'scraped' });
+          }
+        }
+      }
+      // Check the author URL for emails on the actual page
+      if (results.length === 0 && user.link) {
+        const authorHtml = await fetchPage(user.link);
+        if (authorHtml) {
+          const found = extractEmails(authorHtml);
+          for (const { email, context } of found) {
+            if (!results.some(r => r.email === email)) {
+              results.push({ email, name: user.name || extractName(email, context), source: 'scraped' });
+            }
+          }
+          if (results.length > 0) break; // Got one, stop
+        }
+      }
+    }
+  } catch (error) {
+    logger.debug(`WordPress API check failed for ${origin}:`, error);
+  }
+
+  if (results.length > 0) {
+    logger.info(`WordPress API found ${results.length} email(s) for ${domain}`);
+  }
+  return results;
+}
+
+// RSS/Atom feed — author emails are part of the RSS spec
+async function checkRssFeed(origin: string, domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
+  const feedPaths = ['/feed', '/rss', '/atom.xml', '/feed.xml', '/rss.xml', '/index.xml'];
+
+  for (const path of feedPaths) {
+    if (results.length > 0) break;
+    try {
+      const response = await fetch(`${origin}${path}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; SYB Research Bot; +https://shieldyourbody.com)',
+          'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) continue;
+      const text = await response.text();
+      if (!text.includes('<rss') && !text.includes('<feed') && !text.includes('<channel')) continue;
+
+      // RSS/Atom feeds have email in <managingEditor>, <author><email>, <dc:creator>
+      const emailMatches = text.match(EMAIL_REGEX) || [];
+      for (const email of emailMatches) {
+        const lower = email.toLowerCase();
+        if (isValidEmail(lower) && lower.includes(domain) && !results.some(r => r.email === lower)) {
+          // Try to find author name near the email
+          const idx = text.indexOf(email);
+          const context = text.substring(Math.max(0, idx - 200), idx + 200);
+          const nameMatch = context.match(/<name>([^<]+)<\/name>/) || context.match(/<dc:creator>([^<]+)<\/dc:creator>/);
+          results.push({ email: lower, name: nameMatch?.[1] || null, source: 'scraped' });
+        }
+      }
+    } catch (error) {
+      logger.debug(`RSS feed check failed for ${origin}${path}:`, error);
+    }
+  }
+
+  if (results.length > 0) {
+    logger.info(`RSS feed found ${results.length} email(s) for ${domain}`);
+  }
+  return results;
+}
+
+// security.txt — growing standard, sites put contact emails here
+async function checkSecurityTxt(origin: string, domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
+  const paths = ['/.well-known/security.txt', '/security.txt'];
+
+  for (const path of paths) {
+    if (results.length > 0) break;
+    try {
+      const response = await fetch(`${origin}${path}`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SYB Research Bot)' },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) continue;
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('text/plain') && !contentType.includes('text/html')) continue;
+
+      const text = await response.text();
+      const emailMatches = text.match(EMAIL_REGEX) || [];
+      for (const email of emailMatches) {
+        const lower = email.toLowerCase();
+        if (isValidEmail(lower) && !results.some(r => r.email === lower)) {
+          results.push({ email: lower, name: null, source: 'scraped' });
+        }
+      }
+    } catch (error) {
+      logger.debug(`security.txt check failed:`, error);
+    }
+  }
+
+  if (results.length > 0) {
+    logger.info(`security.txt found ${results.length} email(s) for ${domain}`);
+  }
+  return results;
+}
+
+// DNS DMARC record — _dmarc.domain.com TXT record sometimes has rua=mailto:admin@domain.com
+async function checkDmarcRecord(domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
+  try {
+    // Use Google's DNS-over-HTTPS API (free, no library needed)
+    const response = await fetch(`https://dns.google/resolve?name=_dmarc.${domain}&type=TXT`, {
+      headers: { 'Accept': 'application/dns-json' },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) return results;
+    const data = await response.json() as any;
+
+    if (data.Answer) {
+      for (const answer of data.Answer) {
+        const txt = answer.data || '';
+        // Extract mailto: addresses from rua= and ruf= fields
+        const mailtoMatches = txt.match(/mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/gi) || [];
+        for (const match of mailtoMatches) {
+          const email = match.replace('mailto:', '').toLowerCase();
+          // Only accept emails at the same domain (skip third-party DMARC reporters)
+          if (isValidEmail(email) && email.endsWith(`@${domain}`) && !results.some(r => r.email === email)) {
+            results.push({ email, name: null, source: 'scraped' });
+          }
+        }
+      }
+    }
+  } catch (error) {
+    logger.debug(`DMARC check failed for ${domain}:`, error);
+  }
+
+  if (results.length > 0) {
+    logger.info(`DMARC record found ${results.length} email(s) for ${domain}`);
+  }
+  return results;
+}
+
 // Try to find contacts by scraping — article page → author pages → contact pages → web search
 async function findContactsByScraping(
   domain: string,
@@ -666,21 +857,45 @@ async function findContactsByScraping(
     }
   }
 
-  // Step 4: WHOIS/RDAP lookup (domain registration email)
+  // Step 4: WordPress REST API (many WP sites expose user data)
+  if (contacts.length === 0) {
+    logger.debug(`Trying WordPress API for ${domain}`);
+    const wpResults = await checkWordPressUsers(origin, domain);
+    contacts.push(...wpResults);
+  }
+
+  // Step 5: RSS/Atom feed (author emails are part of the spec)
+  if (contacts.length === 0) {
+    logger.debug(`Trying RSS feed for ${domain}`);
+    const rssResults = await checkRssFeed(origin, domain);
+    contacts.push(...rssResults);
+  }
+
+  // Step 6: security.txt and DNS DMARC
+  if (contacts.length === 0) {
+    logger.debug(`Trying security.txt and DMARC for ${domain}`);
+    const [secResults, dmarcResults] = await Promise.all([
+      checkSecurityTxt(origin, domain),
+      checkDmarcRecord(domain),
+    ]);
+    contacts.push(...secResults, ...dmarcResults);
+  }
+
+  // Step 7: WHOIS/RDAP lookup (domain registration email)
   if (contacts.length === 0) {
     logger.debug(`Trying WHOIS/RDAP lookup for ${domain}`);
     const whoisResults = await lookupWhoisEmail(domain);
     contacts.push(...whoisResults);
   }
 
-  // Step 5: Web search (Google first, DuckDuckGo fallback)
+  // Step 8: Web search (Google first, DuckDuckGo fallback)
   if (contacts.length === 0) {
     logger.debug(`Trying web search for ${domain}`);
     const webResults = await searchWebForEmails(domain);
     contacts.push(...webResults);
   }
 
-  // Step 6: Targeted web search using author name (if we found one from Step 2)
+  // Step 9: Targeted web search using author name (if we found one from Step 2)
   if (contacts.length === 0 && foundAuthorName) {
     logger.debug(`Trying targeted name search: "${foundAuthorName}" + ${domain}`);
     const nameQueries = [
@@ -703,7 +918,7 @@ async function findContactsByScraping(
     }
   }
 
-  // Step 7: Social handle web search — find Twitter/X handles and search for their email
+  // Step 10: Social handle web search — find Twitter/X handles and search for their email
   if (contacts.length === 0 && articleHtml) {
     const socialHandles = extractSocialHandles(articleHtml);
     if (socialHandles.length > 0) {
