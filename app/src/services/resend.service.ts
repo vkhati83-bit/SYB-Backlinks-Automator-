@@ -9,6 +9,8 @@ export interface SendEmailInput {
   subject: string;
   body: string;
   replyTo?: string;
+  fromName?: string;
+  fromEmail?: string;
 }
 
 export interface SendEmailResult {
@@ -43,13 +45,16 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       subject: input.subject.substring(0, 50),
     });
 
+    const senderName = input.fromName || 'SYB Research Team';
+    const senderEmail = input.fromEmail || env.OUTREACH_FROM_EMAIL;
+
     const result = await resend.emails.send({
-      from: `SYB Research Team <${env.OUTREACH_FROM_EMAIL}>`,
+      from: `${senderName} <${senderEmail}>`,
       to: actualRecipient,
       subject: input.subject,
       html: textToHtml(input.body),
       text: input.body,
-      replyTo: input.replyTo || env.OUTREACH_FROM_EMAIL,
+      replyTo: input.replyTo || senderEmail,
       headers: {
         'X-Entity-Ref-ID': `syb-backlinks-${Date.now()}`,
       },

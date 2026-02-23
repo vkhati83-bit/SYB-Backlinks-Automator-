@@ -58,6 +58,8 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
     to: contact.email,
     subject,
     body: finalBody,
+    fromName: settings.sender_name || 'SYB Research Team',
+    fromEmail: settings.sender_email || env.OUTREACH_FROM_EMAIL,
   });
 
   if (!result.success) {
