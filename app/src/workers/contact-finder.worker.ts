@@ -160,39 +160,117 @@ async function fetchPage(url: string, retries: number = 2): Promise<string | nul
   return null;
 }
 
-// Extract emails from HTML
+// Decode Cloudflare email obfuscation (data-cfemail attribute)
+function decodeCfEmail(encoded: string): string | null {
+  try {
+    const key = parseInt(encoded.substring(0, 2), 16);
+    let email = '';
+    for (let i = 2; i < encoded.length; i += 2) {
+      email += String.fromCharCode(parseInt(encoded.substring(i, i + 2), 16) ^ key);
+    }
+    return email.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+// Extract emails from HTML — deep scan including hidden sources
 function extractEmails(html: string): Array<{ email: string; context: string }> {
   const $ = cheerio.load(html);
   const emails: Array<{ email: string; context: string }> = [];
   const seen = new Set<string>();
 
-  // Extract from mailto links
+  const addEmail = (email: string, context: string) => {
+    const lower = email.toLowerCase().trim();
+    if (isValidEmail(lower) && !seen.has(lower)) {
+      seen.add(lower);
+      emails.push({ email: lower, context: context.substring(0, 200) });
+    }
+  };
+
+  // 1. mailto: links
   $('a[href^="mailto:"]').each((_, el) => {
     const href = $(el).attr('href') || '';
-    const email = href.replace('mailto:', '').split('?')[0].toLowerCase().trim();
-    if (isValidEmail(email) && !seen.has(email)) {
-      seen.add(email);
-      emails.push({
-        email,
-        context: $(el).parent().text().substring(0, 200),
-      });
+    const email = href.replace('mailto:', '').split('?')[0];
+    addEmail(email, $(el).parent().text());
+  });
+
+  // 2. Cloudflare email obfuscation (very common on WordPress/Cloudflare sites)
+  $('[data-cfemail]').each((_, el) => {
+    const encoded = $(el).attr('data-cfemail') || '';
+    const email = decodeCfEmail(encoded);
+    if (email) addEmail(email, $(el).parent().text());
+  });
+  // Also check the __cf_email__ pattern in href
+  $('a[href*="cdn-cgi/l/email-protection"]').each((_, el) => {
+    const href = $(el).attr('href') || '';
+    const hash = href.split('#').pop();
+    if (hash) {
+      const email = decodeCfEmail(hash);
+      if (email) addEmail(email, $(el).parent().text());
     }
   });
 
-  // Extract from text content
-  const textContent = $('body').text();
-  const matches = textContent.match(EMAIL_REGEX) || [];
-  for (const email of matches) {
-    const lowerEmail = email.toLowerCase();
-    if (isValidEmail(lowerEmail) && !seen.has(lowerEmail)) {
-      seen.add(lowerEmail);
-      const index = textContent.indexOf(email);
-      emails.push({
-        email: lowerEmail,
-        context: textContent.substring(Math.max(0, index - 50), index + 100),
-      });
+  // 3. Data attributes (data-email, data-mail, data-contact, data-address)
+  $('[data-email], [data-mail], [data-contact], [data-address]').each((_, el) => {
+    for (const attr of ['data-email', 'data-mail', 'data-contact', 'data-address']) {
+      const val = $(el).attr(attr) || '';
+      if (val.includes('@')) addEmail(val, $(el).text());
     }
+  });
+
+  // 4. Schema.org itemprop="email"
+  $('[itemprop="email"]').each((_, el) => {
+    const content = $(el).attr('content') || $(el).attr('href')?.replace('mailto:', '') || $(el).text();
+    if (content?.includes('@')) addEmail(content, $(el).parent().text());
+  });
+
+  // 5. Meta tags (author, contact)
+  $('meta[name="author"], meta[name="contact"], meta[name="reply-to"]').each((_, el) => {
+    const content = $(el).attr('content') || '';
+    if (content.includes('@')) addEmail(content, 'meta tag');
+  });
+
+  // 6. JSON-LD structured data — look for email fields
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const text = $(el).html() || '';
+      const emailMatches = text.match(EMAIL_REGEX) || [];
+      for (const email of emailMatches) addEmail(email, 'JSON-LD schema');
+    } catch {}
+  });
+
+  // 7. JavaScript variables and strings — scan all <script> tags
+  $('script:not([src])').each((_, el) => {
+    const code = $(el).html() || '';
+    const jsMatches = code.match(EMAIL_REGEX) || [];
+    for (const email of jsMatches) addEmail(email, 'JavaScript');
+  });
+
+  // 8. HTML comments
+  const commentMatches = html.match(/<!--[\s\S]*?-->/g) || [];
+  for (const comment of commentMatches) {
+    const emailsInComment = comment.match(EMAIL_REGEX) || [];
+    for (const email of emailsInComment) addEmail(email, 'HTML comment');
   }
+
+  // 9. URL-encoded emails (%40 = @)
+  const encodedMatches = html.match(/[a-zA-Z0-9._%+-]+%40[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  for (const encoded of encodedMatches) {
+    addEmail(decodeURIComponent(encoded), 'URL-encoded');
+  }
+
+  // 10. Visible text content (original approach — catches anything the above missed)
+  const textContent = $('body').text();
+  const textMatches = textContent.match(EMAIL_REGEX) || [];
+  for (const email of textMatches) {
+    const index = textContent.indexOf(email);
+    addEmail(email, textContent.substring(Math.max(0, index - 50), index + 100));
+  }
+
+  // 11. Raw HTML scan — catches emails in any attribute, inline styles, etc.
+  const rawMatches = html.match(EMAIL_REGEX) || [];
+  for (const email of rawMatches) addEmail(email, 'raw HTML');
 
   return emails;
 }
