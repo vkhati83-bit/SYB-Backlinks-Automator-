@@ -17,6 +17,7 @@ export interface ProspectFilters {
   is_dofollow: '' | 'true' | 'false';
   has_article_match: '' | 'true' | 'false';
   filter_status: string;
+  has_contact: '' | 'true' | 'false';
 }
 
 export const defaultFilters: ProspectFilters = {
@@ -32,6 +33,7 @@ export const defaultFilters: ProspectFilters = {
   is_dofollow: '',
   has_article_match: '',
   filter_status: '',
+  has_contact: '',
 };
 
 export interface ShowFilters {
@@ -43,6 +45,7 @@ export interface ShowFilters {
   dofollow?: boolean;
   articleMatch?: boolean;
   filterStatus?: boolean;
+  hasContact?: boolean;
 }
 
 const defaultShow: ShowFilters = {
@@ -54,6 +57,7 @@ const defaultShow: ShowFilters = {
   dofollow: true,
   articleMatch: true,
   filterStatus: true,
+  hasContact: true,
 };
 
 interface Props {
@@ -95,6 +99,7 @@ function countActiveFilters(f: ProspectFilters): number {
   if (f.is_dofollow) count++;
   if (f.has_article_match) count++;
   if (f.filter_status) count++;
+  if (f.has_contact) count++;
   return count;
 }
 
@@ -335,6 +340,22 @@ export default function ProspectFilterBar({
                   <option value="">All</option>
                   <option value="true">Has match</option>
                   <option value="false">No match</option>
+                </select>
+              </div>
+            )}
+
+            {/* Contact Found */}
+            {show.hasContact && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Contact</label>
+                <select
+                  value={filters.has_contact}
+                  onChange={(e) => update({ has_contact: e.target.value as '' | 'true' | 'false' })}
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300"
+                >
+                  <option value="">All</option>
+                  <option value="true">Contact found</option>
+                  <option value="false">No contact</option>
                 </select>
               </div>
             )}

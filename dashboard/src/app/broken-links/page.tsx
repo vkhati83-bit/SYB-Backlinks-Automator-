@@ -42,6 +42,13 @@ export default function BrokenLinksPage() {
           filtered = filtered.filter((p: Prospect) => p.status !== 'email_sent' && p.outcome_tag === null);
         }
 
+        // Contact filter
+        if (filters.has_contact === 'true') {
+          filtered = filtered.filter((p: Prospect) => Number(p.contact_count) > 0);
+        } else if (filters.has_contact === 'false') {
+          filtered = filtered.filter((p: Prospect) => Number(p.contact_count) === 0);
+        }
+
         setProspects(filtered);
       }
     } catch (error) {
