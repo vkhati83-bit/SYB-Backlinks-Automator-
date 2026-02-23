@@ -16,6 +16,9 @@ const envSchema = z.object({
   // Database - SEO Command Center (read-only)
   SEO_DATABASE_URL: z.string().min(1, 'SEO_DATABASE_URL is required'),
 
+  // Database - Research DB (shieldyourbody.com/research)
+  RESEARCH_DATABASE_URL: z.string().optional(),
+
   // Redis
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 

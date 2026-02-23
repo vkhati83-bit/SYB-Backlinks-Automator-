@@ -18,6 +18,17 @@ export const seoDb = new Pool({
   connectionTimeoutMillis: 2000,
 });
 
+// Research database pool (syb-research-db - read-only)
+export const researchDb = env.RESEARCH_DATABASE_URL
+  ? new Pool({
+      connectionString: env.RESEARCH_DATABASE_URL,
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+      ssl: { rejectUnauthorized: false },
+    })
+  : null;
+
 // Test connections
 export async function testConnections(): Promise<void> {
   try {
@@ -32,12 +43,22 @@ export async function testConnections(): Promise<void> {
     logger.error('❌ Database connection failed:', error);
     throw error;
   }
+
+  if (researchDb) {
+    try {
+      const researchResult = await researchDb.query('SELECT NOW()');
+      logger.info('✅ Research database connected:', researchResult.rows[0].now);
+    } catch (e) {
+      logger.warn('⚠️  Research database connection failed (optional)');
+    }
+  }
 }
 
 // Graceful shutdown
 export async function closeConnections(): Promise<void> {
   await db.end();
   await seoDb.end();
+  if (researchDb) await researchDb.end();
   logger.info('Database connections closed');
 }
 

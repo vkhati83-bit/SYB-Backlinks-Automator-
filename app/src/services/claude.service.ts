@@ -19,6 +19,9 @@ export interface EmailGenerationInput {
   suggestedArticleTitle?: string | null;
   matchReason?: string | null;
   brokenUrl?: string | null;
+  researchCategoryName?: string;
+  researchStudyCount?: number;
+  emailTemplate?: string;
 }
 
 export interface GeneratedEmail {
@@ -65,9 +68,17 @@ async function generateResearchCitationEmail(input: EmailGenerationInput): Promi
 `
     : '';
 
+  const researchStats = input.researchStudyCount
+    ? `Our research database has ${input.researchStudyCount}+ peer-reviewed studies specifically covering ${input.researchCategoryName || 'EMF health effects'}.`
+    : `Our research database contains 3,600+ peer-reviewed studies on EMF health effects.`;
+
   const pitch = input.suggestedArticleUrl
-    ? `The target page discusses EMF-related topics. Suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a valuable resource they could cite or link to. This article is directly relevant to their content. Also mention our broader research database at shieldyourbody.com/research with 3,600+ peer-reviewed studies.`
-    : `The target page discusses EMF-related topics. Suggest that our research database (shieldyourbody.com/research) with 3,600+ peer-reviewed studies could be a valuable resource to cite/link to, enhancing the credibility of their content.`;
+    ? `The target page discusses EMF-related topics. Suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a valuable resource they could cite or link to. ${researchStats} Also mention our broader research database at shieldyourbody.com/research.`
+    : `The target page discusses EMF-related topics. ${researchStats} Suggest our research database (shieldyourbody.com/research) as a valuable resource to cite, enhancing the credibility of their content.`;
+
+  const templateSection = input.emailTemplate
+    ? `\nEMAIL TEMPLATE TO FOLLOW:\nFollow this structure exactly. Fill in all {{placeholders}} with contextually appropriate content based on the prospect and contact info above.\n\n${input.emailTemplate}\n`
+    : '';
 
   const prompt = `Write an outreach email for this research citation opportunity:
 
@@ -84,7 +95,7 @@ CONTACT:
 
 PITCH:
 ${pitch}
-
+${templateSection}
 Generate a JSON response with "subject" and "body" fields.`;
 
   return generateEmail(prompt);
@@ -133,6 +144,10 @@ async function generateBrokenLinkEmail(input: EmailGenerationInput): Promise<Gen
     ? `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a replacement — it covers the same topic the broken link was about. Be helpful, not opportunistic.`
     : `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our research database (shieldyourbody.com/research) as a relevant replacement resource. Be helpful, not opportunistic.`;
 
+  const templateSection = input.emailTemplate
+    ? `\nEMAIL TEMPLATE TO FOLLOW:\nFollow this structure exactly. Fill in all {{placeholders}} with contextually appropriate content based on the prospect and contact info above.\n\n${input.emailTemplate}\n`
+    : '';
+
   const prompt = `Write an outreach email for this broken link opportunity:
 
 TARGET WEBSITE:
@@ -147,7 +162,7 @@ CONTACT:
 
 PITCH:
 ${pitch}
-
+${templateSection}
 Generate a JSON response with "subject" and "body" fields.`;
 
   return generateEmail(prompt);
@@ -216,8 +231,13 @@ export async function generateFollowupEmail(
   originalSubject: string,
   originalBody: string,
   contactName: string | null,
-  stepNumber: number
+  stepNumber: number,
+  template?: string
 ): Promise<GeneratedEmail> {
+  const templateSection = template
+    ? `\nEMAIL TEMPLATE TO FOLLOW:\nFollow this structure exactly. Fill in all {{placeholders}} with contextually appropriate content based on the original email and contact info above.\n\n${template}\n`
+    : '';
+
   const prompt = `Write a follow-up email (follow-up #${stepNumber}) for this original outreach:
 
 ORIGINAL EMAIL:
@@ -231,7 +251,7 @@ FOLLOW-UP GUIDELINES:
 - Follow-up #2 (day 8): Final follow-up. Offer to help if timing isn't right.
 
 Keep it very short (under 75 words). Be respectful of their time.
-
+${templateSection}
 Generate a JSON response with "subject" and "body" fields.`;
 
   return generateEmail(prompt);

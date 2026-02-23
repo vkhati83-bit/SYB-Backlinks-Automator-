@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq';
 import redis from '../config/redis.js';
 import { QUEUE_NAMES } from '../config/queues.js';
 import { generateOutreachEmail } from '../services/claude.service.js';
+import { findResearchCategory } from '../services/research-matcher.service.js';
 import { emailRepository, prospectRepository, contactRepository, auditRepository } from '../db/repositories/index.js';
 import logger from '../utils/logger.js';
 
@@ -32,6 +33,21 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     throw new Error(`Contact not found: ${contactId}`);
   }
 
+  // Look up research category for research_citation emails
+  let researchCategoryName: string | undefined;
+  let researchStudyCount: number | undefined;
+  if (prospect.opportunity_type === 'research_citation') {
+    const researchMatch = await findResearchCategory(
+      (prospect as any).keyword || '',
+      prospect.title || '',
+      prospect.url || ''
+    );
+    if (researchMatch) {
+      researchCategoryName = researchMatch.category_name;
+      researchStudyCount = researchMatch.study_count;
+    }
+  }
+
   // Generate email using Claude
   const generated = await generateOutreachEmail({
     prospectUrl: prospect.url,
@@ -46,6 +62,8 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     suggestedArticleTitle: prospect.suggested_article_title,
     matchReason: prospect.match_reason,
     brokenUrl: (prospect as any).broken_url,
+    researchCategoryName,
+    researchStudyCount,
   });
 
   // Save email to database
