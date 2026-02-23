@@ -46,13 +46,18 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
 
   // Use edited content if available
   const subject = email.edited_subject || email.subject;
-  const body = email.edited_body || email.body;
+
+  // Append signature if configured
+  const settings = await settingsRepository.getAll();
+  const signature = settings.email_signature || '';
+  const baseBody = email.edited_body || email.body || '';
+  const finalBody = signature ? `${baseBody}\n\n${signature}` : baseBody;
 
   // Send email
   const result = await sendEmail({
     to: contact.email,
     subject,
-    body,
+    body: finalBody,
   });
 
   if (!result.success) {

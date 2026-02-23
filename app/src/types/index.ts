@@ -340,6 +340,8 @@ export interface Settings {
   claude_model: string;
   warmup_enabled: boolean;
   warmup_week: number;
+  email_signature?: string;   // Appended to every generated email
+  sender_title?: string;      // e.g. "EMF Research Specialist"
 }
 
 // ============================================

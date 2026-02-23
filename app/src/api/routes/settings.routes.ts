@@ -274,7 +274,9 @@ router.post('/factory-reset', async (req: Request, res: Response) => {
         ('min_monthly_traffic', '1000', 'Minimum monthly traffic for prospects'),
         ('claude_model', '"claude-sonnet-4-20250514"', 'Claude model for email generation'),
         ('warmup_enabled', 'true', 'Whether email warmup is enabled'),
-        ('warmup_week', '1', 'Current warmup week (1-7)')
+        ('warmup_week', '1', 'Current warmup week (1-7)'),
+        ('email_signature', '""', 'Signature appended to every outreach email'),
+        ('sender_title', '"EMF Research Specialist"', 'Sender job title shown in emails')
       ON CONFLICT (key) DO UPDATE SET
         value = EXCLUDED.value,
         description = EXCLUDED.description

@@ -55,6 +55,8 @@ export class SettingsRepository {
       claude_model: settings.claude_model as string || 'claude-sonnet-4-20250514',
       warmup_enabled: settings.warmup_enabled as boolean ?? true,
       warmup_week: settings.warmup_week as number || 1,
+      email_signature: settings.email_signature as string || '',
+      sender_title: settings.sender_title as string || 'EMF Research Specialist',
     };
   }
 
