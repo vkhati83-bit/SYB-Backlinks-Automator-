@@ -3,6 +3,7 @@ import { emailRepository, auditRepository } from '../../db/repositories/index.js
 import { db } from '../../db/index.js';
 import { emailSenderQueue } from '../../config/queues.js';
 import { generateOutreachEmail } from '../../services/claude.service.js';
+import { findResearchCategory } from '../../services/research-matcher.service.js';
 import logger from '../../utils/logger.js';
 
 const router = Router();
@@ -39,6 +40,31 @@ router.post('/generate', async (req: Request, res: Response) => {
     const prospect = prospectResult.rows[0];
     const contact = contactResult.rows[0];
 
+    // For research_citation prospects, resolve research DB category URL
+    let suggestedArticleUrl = prospect.suggested_article_url;
+    let suggestedArticleTitle = prospect.suggested_article_title;
+    let matchReason = prospect.match_reason;
+    let researchCategoryName: string | undefined;
+    let researchStudyCount: number | undefined;
+
+    if (prospect.opportunity_type === 'research_citation') {
+      const researchMatch = await findResearchCategory(
+        prospect.keyword || '',
+        prospect.title || '',
+        prospect.url || ''
+      );
+      if (researchMatch) {
+        suggestedArticleUrl = `https://shieldyourbody.com/research?category=${researchMatch.slug}`;
+        suggestedArticleTitle = `${researchMatch.category_name} Research (${researchMatch.study_count}+ peer-reviewed studies)`;
+        matchReason = researchMatch.ai_synthesis || matchReason;
+        researchCategoryName = researchMatch.category_name;
+        researchStudyCount = researchMatch.study_count;
+      } else {
+        suggestedArticleUrl = 'https://shieldyourbody.com/research';
+        suggestedArticleTitle = 'SYB EMF Research Database (3,600+ peer-reviewed studies)';
+      }
+    }
+
     // Generate email with Claude
     const generated = await generateOutreachEmail({
       prospectUrl: prospect.url,
@@ -49,10 +75,12 @@ router.post('/generate', async (req: Request, res: Response) => {
       contactEmail: contact.email,
       opportunityType: prospect.opportunity_type,
       pageContent: prospect.page_content || undefined,
-      suggestedArticleUrl: prospect.suggested_article_url,
-      suggestedArticleTitle: prospect.suggested_article_title,
-      matchReason: prospect.match_reason,
+      suggestedArticleUrl,
+      suggestedArticleTitle,
+      matchReason,
       brokenUrl: prospect.broken_url,
+      researchCategoryName,
+      researchStudyCount,
     });
 
     res.json({
