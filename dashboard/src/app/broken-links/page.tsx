@@ -37,9 +37,9 @@ export default function BrokenLinksPage() {
         let filtered = data.prospects || [];
 
         if (activeTab === 'completed') {
-          filtered = filtered.filter((p: Prospect) => p.outcome_tag !== null);
+          filtered = filtered.filter((p: Prospect) => p.status === 'email_sent' || p.outcome_tag !== null);
         } else if (activeTab === 'approved') {
-          filtered = filtered.filter((p: Prospect) => p.outcome_tag === null);
+          filtered = filtered.filter((p: Prospect) => p.status !== 'email_sent' && p.outcome_tag === null);
         }
 
         setProspects(filtered);
@@ -61,8 +61,8 @@ export default function BrokenLinksPage() {
       const approvedData = approvedRes.ok ? await approvedRes.json() : { prospects: [] };
 
       const approvedProspects = approvedData.prospects || [];
-      const completed = approvedProspects.filter((p: Prospect) => p.outcome_tag !== null).length;
-      const approved = approvedProspects.filter((p: Prospect) => p.outcome_tag === null).length;
+      const completed = approvedProspects.filter((p: Prospect) => p.status === 'email_sent' || p.outcome_tag !== null).length;
+      const approved = approvedProspects.filter((p: Prospect) => p.status !== 'email_sent' && p.outcome_tag === null).length;
 
       setCounts({
         pending: pendingData.prospects?.length || 0,

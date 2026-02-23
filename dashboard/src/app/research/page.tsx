@@ -32,11 +32,11 @@ export default function ResearchCitationsPage() {
         const data = await res.json();
         let filtered = data.prospects || [];
 
-        // For completed tab, filter to those with outcome_tag set
+        // For completed tab, show emailed prospects or those with outcome_tag set
         if (activeTab === 'completed') {
-          filtered = filtered.filter((p: Prospect) => p.outcome_tag !== null);
+          filtered = filtered.filter((p: Prospect) => p.status === 'email_sent' || p.outcome_tag !== null);
         } else if (activeTab === 'approved') {
-          filtered = filtered.filter((p: Prospect) => p.outcome_tag === null);
+          filtered = filtered.filter((p: Prospect) => p.status !== 'email_sent' && p.outcome_tag === null);
         }
 
         setProspects(filtered);
@@ -58,8 +58,8 @@ export default function ResearchCitationsPage() {
       const approvedData = approvedRes.ok ? await approvedRes.json() : { prospects: [] };
 
       const approvedProspects = approvedData.prospects || [];
-      const completed = approvedProspects.filter((p: Prospect) => p.outcome_tag !== null).length;
-      const approved = approvedProspects.filter((p: Prospect) => p.outcome_tag === null).length;
+      const completed = approvedProspects.filter((p: Prospect) => p.status === 'email_sent' || p.outcome_tag !== null).length;
+      const approved = approvedProspects.filter((p: Prospect) => p.status !== 'email_sent' && p.outcome_tag === null).length;
 
       setCounts({
         pending: pendingData.prospects?.length || 0,

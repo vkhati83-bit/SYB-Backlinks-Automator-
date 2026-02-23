@@ -2,7 +2,7 @@ import { Worker, Job } from 'bullmq';
 import redis from '../config/redis.js';
 import { QUEUE_NAMES } from '../config/queues.js';
 import { sendEmail } from '../services/resend.service.js';
-import { emailRepository, contactRepository, sequenceRepository, settingsRepository, auditRepository } from '../db/repositories/index.js';
+import { emailRepository, contactRepository, sequenceRepository, settingsRepository, auditRepository, prospectRepository } from '../db/repositories/index.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
 
@@ -67,6 +67,9 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
 
   // Update email status
   await emailRepository.markSent(emailId, result.resendId!);
+
+  // Move prospect to completed
+  await prospectRepository.updateStatus(email.prospect_id, 'email_sent');
 
   // Create follow-up sequence
   await sequenceRepository.create({
