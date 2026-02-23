@@ -44,6 +44,18 @@ const DISPOSABLE_DOMAINS = new Set([
   'throwaway.email', 'fakeinbox.com', 'trashmail.com',
 ]);
 
+// Registrar/hosting/infrastructure domains — never useful for outreach
+const REGISTRAR_DOMAINS = new Set([
+  'namecheap.com', 'godaddy.com', 'tucows.com', 'enom.com', 'networksolutions.com',
+  'register.com', 'name.com', 'dynadot.com', 'porkbun.com', 'hover.com',
+  'gandi.net', 'ionos.com', '1and1.com', 'ovh.com', 'ovhcloud.com',
+  'cloudflare.com', 'amazonaws.com', 'google.com', 'googledomains.com',
+  'squarespace.com', 'wix.com', 'wordpress.com', 'shopify.com',
+  'bluehost.com', 'hostgator.com', 'siteground.com', 'dreamhost.com',
+  'a2hosting.com', 'inmotionhosting.com', 'wpengine.com',
+  'markmonitor.com', 'corporatedomains.com', 'cscdbs.com',
+]);
+
 // Validate email format
 function isValidEmail(email: string): boolean {
   // Basic validation
@@ -58,9 +70,13 @@ function isValidEmail(email: string): boolean {
   // Check for disposable domains
   if (DISPOSABLE_DOMAINS.has(domain.toLowerCase())) return false;
 
+  // Check for registrar/hosting/infrastructure domains
+  if (REGISTRAR_DOMAINS.has(domain.toLowerCase())) return false;
+
   // Check for common invalid patterns
   if (email.includes('example.com') || email.includes('test.com')) return false;
   if (email.includes('noreply') || email.includes('no-reply')) return false;
+  if (local.toLowerCase() === 'abuse') return false;
 
   return true;
 }
