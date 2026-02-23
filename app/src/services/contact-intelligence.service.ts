@@ -222,22 +222,22 @@ export async function findContactsForProspect(
     logger.info(`Stage 1: Added ${scrapedContacts.length} scraped contacts`);
   }
 
-  // Stage 2: Hunter.io Domain Search (if budget allows)
-  if (totalCost < MAX_COST_PER_PROSPECT_CENTS) {
+  // Stage 2: Hunter.io Domain Search — LAST RESORT only when all free scraping found nothing
+  if (allContacts.length === 0 && totalCost < MAX_COST_PER_PROSPECT_CENTS) {
+    logger.info(`Stage 2: All free methods failed for ${domain}, falling back to Hunter.io`);
     const hunterResult = await searchWithHunter(domain);
     if (hunterResult.contacts.length > 0) {
       allContacts.push(...hunterResult.contacts);
       totalCost += hunterResult.cost_cents;
       sourcesUsed.push('hunter_domain_search');
-      logger.info(`Stage 2: Added ${hunterResult.contacts.length} Hunter contacts (cost: $${(hunterResult.cost_cents / 100).toFixed(2)})`);
+      logger.info(`Stage 2: Hunter.io found ${hunterResult.contacts.length} contacts (cost: $${(hunterResult.cost_cents / 100).toFixed(2)})`);
     }
   }
 
-  // Stage 3: Google LinkedIn Search (if budget allows and Hunter didn't find enough)
-  if (totalCost < MAX_COST_PER_PROSPECT_CENTS && allContacts.length < 3) {
+  // Stage 3: Google LinkedIn Search — only if Hunter also found nothing
+  if (allContacts.length === 0 && totalCost < MAX_COST_PER_PROSPECT_CENTS) {
     const linkedinResult = await searchLinkedInProfiles(domain);
     if (linkedinResult.contacts.length > 0) {
-      // Try to find emails for LinkedIn profiles
       for (const contact of linkedinResult.contacts) {
         if (totalCost >= MAX_COST_PER_PROSPECT_CENTS) break;
 
