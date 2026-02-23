@@ -16,7 +16,6 @@ router.post('/retry-failed', async (req: Request, res: Response) => {
       FROM prospects p
       WHERE p.approval_status = 'approved'
         AND p.status != 'email_sent'
-        AND (p.contact_count = 0 OR p.contact_count IS NULL)
         AND NOT EXISTS (SELECT 1 FROM contacts c WHERE c.prospect_id = p.id)
     `);
 
