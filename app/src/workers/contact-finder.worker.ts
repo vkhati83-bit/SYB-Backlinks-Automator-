@@ -30,9 +30,6 @@ const CONTACT_PATHS = [
 // Email regex pattern
 const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
-// Common email patterns for guessing
-const COMMON_EMAIL_PREFIXES = ['editor', 'contact', 'info', 'hello', 'admin', 'webmaster', 'press', 'media'];
-
 // Disposable email domains to filter out
 const DISPOSABLE_DOMAINS = new Set([
   'mailinator.com', 'guerrillamail.com', 'tempmail.com', '10minutemail.com',
@@ -64,7 +61,6 @@ function isValidEmail(email: string): boolean {
 function getConfidenceTier(source: string, hasName: boolean): ContactConfidenceTier {
   if (source === 'scraped' && hasName) return 'A';
   if (source === 'scraped') return 'B';
-  if (source === 'pattern') return 'C';
   return 'D';
 }
 
@@ -79,9 +75,10 @@ function extractName(email: string, context: string): string | null {
     if (nameMatch) return nameMatch[1];
   }
 
-  // Try to extract from email address
+  // Try to extract from email address (skip generic role prefixes)
+  const genericPrefixes = new Set(['editor', 'contact', 'info', 'hello', 'admin', 'webmaster', 'press', 'media', 'support', 'team']);
   const localPart = email.split('@')[0];
-  if (localPart && !COMMON_EMAIL_PREFIXES.includes(localPart.toLowerCase())) {
+  if (localPart && !genericPrefixes.has(localPart.toLowerCase())) {
     // Convert firstname.lastname or firstname_lastname to Name
     const nameParts = localPart.split(/[._]/);
     if (nameParts.length >= 2) {
@@ -176,34 +173,118 @@ function extractEmails(html: string): Array<{ email: string; context: string }> 
   return emails;
 }
 
-// Try to find contacts by scraping
+// Extract author page URLs from an article page
+function extractAuthorLinks(html: string, origin: string): Array<{ url: string; name: string | null }> {
+  const $ = cheerio.load(html);
+  const authorLinks: Array<{ url: string; name: string | null }> = [];
+  const seen = new Set<string>();
+
+  const addLink = (href: string, name: string | null) => {
+    try {
+      const fullUrl = href.startsWith('http') ? href : `${origin}${href.startsWith('/') ? href : '/' + href}`;
+      if (!seen.has(fullUrl) && fullUrl.startsWith(origin)) {
+        seen.add(fullUrl);
+        authorLinks.push({ url: fullUrl, name: name || null });
+      }
+    } catch (_) {}
+  };
+
+  // 1. rel="author" links
+  $('a[rel="author"], a[rel~="author"]').each((_, el) => {
+    const href = $(el).attr('href');
+    const name = $(el).text().trim() || null;
+    if (href) addLink(href, name);
+  });
+
+  // 2. Schema.org itemprop="author"
+  $('[itemprop="author"]').each((_, el) => {
+    const link = $(el).find('a').first();
+    const href = link.attr('href');
+    const name = $(el).find('[itemprop="name"]').text().trim() || $(el).text().trim() || null;
+    if (href) addLink(href, name);
+  });
+
+  // 3. JSON-LD schema
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const json = JSON.parse($(el).html() || '{}');
+      const checkSchema = (obj: any) => {
+        if (!obj || typeof obj !== 'object') return;
+        if (obj.author) {
+          const author = Array.isArray(obj.author) ? obj.author[0] : obj.author;
+          if (author?.url && typeof author.url === 'string') addLink(author.url, author.name || null);
+        }
+        for (const v of Object.values(obj)) {
+          if (v && typeof v === 'object') checkSchema(v);
+        }
+      };
+      checkSchema(json);
+    } catch (_) {}
+  });
+
+  // 4. Common author CSS class patterns — only follow links that look like author profile paths
+  const authorSelectors = [
+    '.author a', '.byline a', '.post-author a', '.entry-author a',
+    '.article-author a', '[class*="author"] a', '[class*="byline"] a',
+  ];
+  for (const sel of authorSelectors) {
+    $(sel).each((_, el) => {
+      const href = $(el).attr('href') || '';
+      const name = $(el).text().trim() || null;
+      if (href && /\/(author|user|profile|contributor|writer)\//i.test(href)) {
+        addLink(href, name);
+      }
+    });
+  }
+
+  return authorLinks.slice(0, 3); // max 3 author pages
+}
+
+// Try to find contacts by scraping — article page → author pages → contact pages
 async function findContactsByScraping(
   domain: string,
   baseUrl: string
 ): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
   const contacts: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
   const triedUrls = new Set<string>();
+  const origin = new URL(baseUrl).origin;
 
-  // Try main URL first
-  const mainHtml = await fetchPage(baseUrl);
-  if (mainHtml) {
-    const mainEmails = extractEmails(mainHtml);
-    for (const { email, context } of mainEmails) {
+  const addEmails = (emails: Array<{ email: string; context: string }>, authorName?: string | null) => {
+    for (const { email, context } of emails) {
       if (!contacts.some(c => c.email === email)) {
         contacts.push({
           email,
-          name: extractName(email, context),
+          name: authorName || extractName(email, context),
           source: 'scraped',
         });
       }
     }
+  };
+
+  // Step 1: Scrape the article page itself
+  triedUrls.add(baseUrl);
+  const articleHtml = await fetchPage(baseUrl);
+  if (articleHtml) {
+    addEmails(extractEmails(articleHtml));
+
+    // Step 2: Follow author page links found on the article
+    if (contacts.length === 0) {
+      const authorLinks = extractAuthorLinks(articleHtml, origin);
+      logger.debug(`Found ${authorLinks.length} author links on article page`);
+      for (const { url: authorUrl, name: authorName } of authorLinks) {
+        if (triedUrls.has(authorUrl)) continue;
+        triedUrls.add(authorUrl);
+        const authorHtml = await fetchPage(authorUrl);
+        if (authorHtml) {
+          addEmails(extractEmails(authorHtml), authorName);
+          if (contacts.length > 0) break;
+        }
+      }
+    }
   }
 
-  // If no contacts found, try contact pages
+  // Step 3: Try standard contact/about pages
   if (contacts.length === 0) {
-    const baseUrlObj = new URL(baseUrl);
-    const origin = baseUrlObj.origin;
-
     for (const path of CONTACT_PATHS) {
       const contactUrl = `${origin}${path}`;
       if (triedUrls.has(contactUrl)) continue;
@@ -212,32 +293,12 @@ async function findContactsByScraping(
       const html = await fetchPage(contactUrl);
       if (!html) continue;
 
-      const emails = extractEmails(html);
-      for (const { email, context } of emails) {
-        if (!contacts.some(c => c.email === email)) {
-          contacts.push({
-            email,
-            name: extractName(email, context),
-            source: 'scraped',
-          });
-        }
-      }
-
-      // Stop if we found contacts
+      addEmails(extractEmails(html));
       if (contacts.length > 0) break;
     }
   }
 
   return contacts;
-}
-
-// Generate common email patterns as fallback
-function generateEmailPatterns(domain: string): Array<{ email: string; name: string | null; source: 'pattern' }> {
-  return COMMON_EMAIL_PREFIXES.map(prefix => ({
-    email: `${prefix}@${domain}`,
-    name: null,
-    source: 'pattern' as const,
-  }));
 }
 
 // Worker processor with multi-source intelligence
@@ -319,29 +380,7 @@ async function processContactFinderJob(job: Job<ContactFinderJobData>): Promise<
       }
     }
   } else {
-    // Fallback: Use pattern-based emails only if no other contacts found
-    logger.warn(`No contacts found via intelligence service, using pattern fallback for ${domain}`);
-    const patternContacts = generateEmailPatterns(domain);
-
-    for (const contact of patternContacts.slice(0, 2)) {
-      if (await blocklistRepository.isEmailBlocked(contact.email)) continue;
-
-      try {
-        const saved = await contactRepository.create({
-          prospect_id: prospectId,
-          email: contact.email,
-          name: contact.name,
-          confidence_tier: 'D' as ContactConfidenceTier,
-          source: 'pattern',
-          confidence_score: 10,
-        });
-
-        await auditRepository.logContactFound(saved.id, prospectId);
-        savedCount++;
-      } catch (error) {
-        logger.debug(`Failed to save pattern contact: ${contact.email}`, error);
-      }
-    }
+    logger.warn(`No contacts found for ${domain} — skipping pattern fallback`);
   }
 
   // Update prospect status if contacts found
