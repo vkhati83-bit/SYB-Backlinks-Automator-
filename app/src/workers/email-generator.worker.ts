@@ -3,7 +3,7 @@ import redis from '../config/redis.js';
 import { QUEUE_NAMES } from '../config/queues.js';
 import { generateOutreachEmail } from '../services/claude.service.js';
 import { findResearchCategory } from '../services/research-matcher.service.js';
-import { emailRepository, prospectRepository, contactRepository, auditRepository } from '../db/repositories/index.js';
+import { emailRepository, prospectRepository, contactRepository, auditRepository, settingsRepository } from '../db/repositories/index.js';
 import logger from '../utils/logger.js';
 
 export interface EmailGeneratorJobData {
@@ -32,6 +32,12 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
   if (!contact) {
     throw new Error(`Contact not found: ${contactId}`);
   }
+
+  // Load settings to get email templates
+  const settings = await settingsRepository.getAll();
+  const emailTemplate = prospect.opportunity_type === 'broken_link'
+    ? (settings.email_template_broken_link || undefined)
+    : (settings.email_template_research || undefined);
 
   // Look up research category for research_citation emails
   let researchCategoryName: string | undefined;
@@ -64,6 +70,7 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     brokenUrl: (prospect as any).broken_url,
     researchCategoryName,
     researchStudyCount,
+    emailTemplate: emailTemplate || undefined,
   });
 
   // Save email to database

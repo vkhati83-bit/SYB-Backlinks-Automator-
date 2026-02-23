@@ -276,7 +276,11 @@ router.post('/factory-reset', async (req: Request, res: Response) => {
         ('warmup_enabled', 'true', 'Whether email warmup is enabled'),
         ('warmup_week', '1', 'Current warmup week (1-7)'),
         ('email_signature', '""', 'Signature appended to every outreach email'),
-        ('sender_title', '"EMF Research Specialist"', 'Sender job title shown in emails')
+        ('sender_title', '"EMF Research Specialist"', 'Sender job title shown in emails'),
+        ('email_template_research', '""', 'Template for research citation emails (leave blank for Claude default)'),
+        ('email_template_broken_link', '""', 'Template for broken link emails (leave blank for Claude default)'),
+        ('email_template_followup_1', '""', 'Template for first follow-up (leave blank for Claude default)'),
+        ('email_template_followup_2', '""', 'Template for second follow-up (leave blank for Claude default)')
       ON CONFLICT (key) DO UPDATE SET
         value = EXCLUDED.value,
         description = EXCLUDED.description

@@ -57,6 +57,10 @@ export class SettingsRepository {
       warmup_week: settings.warmup_week as number || 1,
       email_signature: settings.email_signature as string || '',
       sender_title: settings.sender_title as string || 'EMF Research Specialist',
+      email_template_research: settings.email_template_research as string || '',
+      email_template_broken_link: settings.email_template_broken_link as string || '',
+      email_template_followup_1: settings.email_template_followup_1 as string || '',
+      email_template_followup_2: settings.email_template_followup_2 as string || '',
     };
   }
 

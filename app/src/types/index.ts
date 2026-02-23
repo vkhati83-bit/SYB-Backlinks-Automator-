@@ -342,6 +342,10 @@ export interface Settings {
   warmup_week: number;
   email_signature?: string;   // Appended to every generated email
   sender_title?: string;      // e.g. "EMF Research Specialist"
+  email_template_research?: string;
+  email_template_broken_link?: string;
+  email_template_followup_1?: string;
+  email_template_followup_2?: string;
 }
 
 // ============================================

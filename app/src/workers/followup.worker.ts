@@ -3,7 +3,7 @@ import redis from '../config/redis.js';
 import { QUEUE_NAMES } from '../config/queues.js';
 import { generateFollowupEmail } from '../services/claude.service.js';
 import { sendEmail } from '../services/resend.service.js';
-import { sequenceRepository, emailRepository, contactRepository, auditRepository } from '../db/repositories/index.js';
+import { sequenceRepository, emailRepository, contactRepository, auditRepository, settingsRepository } from '../db/repositories/index.js';
 import { db } from '../db/index.js';
 import logger from '../utils/logger.js';
 
@@ -60,12 +60,19 @@ async function processFollowupJob(job: Job<FollowupJobData>): Promise<{ sent: bo
     throw new Error(`Contact not found: ${sequence.contact_id}`);
   }
 
+  // Load settings to get follow-up templates
+  const settings = await settingsRepository.getAll();
+  const template = sequence.current_step === 1
+    ? (settings.email_template_followup_1 || undefined)
+    : (settings.email_template_followup_2 || undefined);
+
   // Generate follow-up email
   const followup = await generateFollowupEmail(
     originalEmail.edited_subject || originalEmail.subject,
     originalEmail.edited_body || originalEmail.body,
     contact.name,
-    sequence.current_step
+    sequence.current_step,
+    template
   );
 
   // Send follow-up

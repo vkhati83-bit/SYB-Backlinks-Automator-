@@ -10,6 +10,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTemplate, setActiveTemplate] = useState('research');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetPassword, setResetPassword] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -257,6 +258,88 @@ export default function SettingsPage() {
               <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">Connected</span>
             </div>
           </div>
+        </div>
+
+        {/* Email Templates Section */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Email Templates</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Optional — leave blank to let Claude write freely. When filled, Claude will follow your structure and fill in the placeholders.
+          </p>
+
+          <div className="flex gap-2 mb-4 flex-wrap">
+            {[
+              { key: 'research', label: 'Research Citation' },
+              { key: 'broken_link', label: 'Broken Link' },
+              { key: 'followup_1', label: 'Follow-up #1' },
+              { key: 'followup_2', label: 'Follow-up #2' },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveTemplate(key)}
+                className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                  activeTemplate === key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <textarea
+            rows={10}
+            className="w-full font-mono text-sm border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder={`Leave blank for Claude default.\n\nExample:\nHi {{contact_name}},\n\nI noticed your article on {{their_topic}}...\n\n{{our_pitch}}\n\n{{email_signature}}`}
+            value={settings[`email_template_${activeTemplate}`] || ''}
+            onChange={e => updateSetting(`email_template_${activeTemplate}`, e.target.value)}
+          />
+
+          <details className="mt-3">
+            <summary className="text-sm text-blue-600 cursor-pointer hover:underline select-none">
+              Available placeholders
+            </summary>
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 text-xs font-mono bg-gray-50 p-3 rounded-md border border-gray-200">
+              <div>
+                <p className="font-bold text-gray-500 mb-2 uppercase tracking-wide not-italic" style={{fontFamily: 'inherit'}}>System fills automatically</p>
+                {[
+                  ['{{contact_name}}', 'Recipient name'],
+                  ['{{their_article_title}}', 'Their page title'],
+                  ['{{their_article_url}}', 'Their page URL'],
+                  ['{{broken_url}}', 'Broken link URL (broken-link only)'],
+                  ['{{anchor_text}}', 'Anchor text of broken link'],
+                  ['{{our_article_title}}', 'Suggested SYB article title'],
+                  ['{{our_article_url}}', 'Suggested SYB article URL'],
+                  ['{{study_count}}', 'Studies in matched category'],
+                  ['{{research_category}}', 'Research category name'],
+                  ['{{sender_name}}', 'Your name (from Sender settings)'],
+                  ['{{email_signature}}', 'Your signature'],
+                ].map(([ph, desc]) => (
+                  <div key={ph} className="flex gap-2 py-0.5">
+                    <code className="text-blue-700 shrink-0 w-52">{ph}</code>
+                    <span className="text-gray-500">{desc}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 md:mt-0">
+                <p className="font-bold text-gray-500 mb-2 uppercase tracking-wide not-italic" style={{fontFamily: 'inherit'}}>Claude fills contextually</p>
+                {[
+                  ['{{their_article_summary}}', 'Summary of their article'],
+                  ['{{their_topic}}', 'Topic of their content'],
+                  ['{{our_pitch}}', 'How SYB research helps their readers'],
+                  ['{{how_it_helps_their_readers}}', 'Reader value proposition'],
+                  ['{{connection_to_content}}', 'Relevance to their content'],
+                ].map(([ph, desc]) => (
+                  <div key={ph} className="flex gap-2 py-0.5">
+                    <code className="text-purple-700 shrink-0 w-52">{ph}</code>
+                    <span className="text-gray-500">{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </details>
         </div>
 
         {/* DANGER ZONE */}
