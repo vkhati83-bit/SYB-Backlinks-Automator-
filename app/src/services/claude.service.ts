@@ -56,7 +56,12 @@ IMPORTANT:
 - Keep emails under 150 words
 - Subject lines should be specific and intriguing, not generic
 - Include 1-2 specific details from their content to show you actually read it
-- The goal is to start a conversation, not close a deal`;
+- The goal is to start a conversation, not close a deal
+
+CRITICAL URL RULE:
+- You will be given EXACT URLs to use in the email. Use them verbatim — do not modify, shorten, or replace them.
+- NEVER invent or substitute SYB URLs from your own knowledge (e.g. shieldyourbody.com/airplane-mode/, shieldyourbody.com/health-risk-cell-phones/, or any other SYB blog/product page).
+- The only SYB URLs permitted in the email are the ones explicitly provided in the prompt.`;
 
 // Generate email for research citation opportunity
 async function generateResearchCitationEmail(input: EmailGenerationInput): Promise<GeneratedEmail> {
@@ -73,8 +78,8 @@ async function generateResearchCitationEmail(input: EmailGenerationInput): Promi
     : `Our research database contains 3,600+ peer-reviewed studies on EMF health effects.`;
 
   const pitch = input.suggestedArticleUrl
-    ? `The target page is titled "${input.prospectTitle || input.prospectDomain}" and lives at ${input.prospectUrl}. In the email opening, reference their article by name AND include the URL so they immediately know which piece you mean (e.g. "your article on [topic] at ${input.prospectUrl}"). Then recommend our research resource: "${input.suggestedArticleTitle}" at ${input.suggestedArticleUrl} — this is a curated page of peer-reviewed studies they can cite to strengthen their article. ${researchStats} Make the email feel personal by tying our research directly to the topic they are already writing about.`
-    : `The target page is titled "${input.prospectTitle || input.prospectDomain}" at ${input.prospectUrl}. In the email opening, reference their article by name and include the URL. ${researchStats} Suggest our research database (shieldyourbody.com/research) as a resource to cite, enhancing the credibility of their content.`;
+    ? `The target page is titled "${input.prospectTitle || input.prospectDomain}" and lives at ${input.prospectUrl}. In the email opening, reference their article by name AND include that URL (${input.prospectUrl}) so they immediately know which piece you mean. Then recommend our research resource with its EXACT title and URL — title: "${input.suggestedArticleTitle}", URL: ${input.suggestedArticleUrl}. You MUST use this exact URL verbatim. Do NOT substitute any other SYB URL. ${researchStats} Tie the research directly to the topic they are writing about.`
+    : `The target page is titled "${input.prospectTitle || input.prospectDomain}" at ${input.prospectUrl}. Reference their article by name and include that URL. ${researchStats} Recommend our research database at shieldyourbody.com/research (use this exact URL).`;
 
   const templateSection = input.emailTemplate
     ? `\nEMAIL TEMPLATE TO FOLLOW:\nFollow this structure exactly. Fill in all {{placeholders}} with contextually appropriate content based on the prospect and contact info above.\n\n${input.emailTemplate}\n`
