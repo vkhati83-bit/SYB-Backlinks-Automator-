@@ -248,12 +248,93 @@ function extractAuthorLinks(html: string, origin: string): Array<{ url: string; 
   return authorLinks.slice(0, 3); // max 3 author pages
 }
 
-// Search DuckDuckGo for publicly indexed emails for a domain (free, no API key)
-async function searchWebForEmails(domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+// Extract emails from search result HTML using domain-specific regex
+function extractEmailsFromSearchHtml(
+  html: string,
+  domain: string,
+  snippetSelectors: string[],
+): Array<{ email: string; name: string | null; source: 'scraped' }> {
   const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
   const domainEmailRegex = new RegExp(`[a-zA-Z0-9._%+\\-]+@${domain.replace('.', '\\.')}`, 'gi');
+  const $ = cheerio.load(html);
 
-  // Two targeted queries: one for any @domain.com mention, one for explicit contact pages
+  // Extract from snippet text
+  const snippetText = $(snippetSelectors.join(', ')).map((_, el) => $(el).text()).get().join(' ');
+  const inlineMatches = snippetText.match(domainEmailRegex) || [];
+  for (const email of inlineMatches) {
+    const lowerEmail = email.toLowerCase();
+    if (isValidEmail(lowerEmail) && !results.some(r => r.email === lowerEmail)) {
+      results.push({ email: lowerEmail, name: extractName(lowerEmail, snippetText), source: 'scraped' });
+    }
+  }
+
+  // Scan full HTML as fallback
+  if (results.length === 0) {
+    const fullMatches = html.match(domainEmailRegex) || [];
+    for (const email of fullMatches) {
+      const lowerEmail = email.toLowerCase();
+      if (isValidEmail(lowerEmail) && !results.some(r => r.email === lowerEmail)) {
+        results.push({ email: lowerEmail, name: null, source: 'scraped' });
+      }
+    }
+  }
+
+  return results;
+}
+
+// Search Google for publicly indexed emails (better coverage, may get blocked)
+async function searchGoogleForEmails(domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
+
+  const queries = [
+    `"@${domain}"`,
+    `contact email site:${domain}`,
+  ];
+
+  for (const query of queries) {
+    if (results.length > 0) break;
+    try {
+      const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        logger.debug(`Google search returned ${response.status} for ${domain}`);
+        break; // Don't retry other queries if Google is blocking
+      }
+
+      const html = await response.text();
+
+      // Check if blocked by CAPTCHA
+      if (html.includes('detected unusual traffic') || html.includes('captcha')) {
+        logger.debug(`Google CAPTCHA detected for ${domain}, will fall back to DuckDuckGo`);
+        break;
+      }
+
+      const found = extractEmailsFromSearchHtml(html, domain, ['.VwiC3b', '.st', '.s3v9rd', 'span.aCOpRe']);
+      results.push(...found);
+    } catch (error) {
+      logger.debug(`Google search failed for ${domain}:`, error);
+      break;
+    }
+  }
+
+  if (results.length > 0) {
+    logger.info(`Google found ${results.length} email(s) for ${domain}`);
+  }
+  return results;
+}
+
+// Search DuckDuckGo for publicly indexed emails (reliable fallback, never blocks)
+async function searchDuckDuckGoForEmails(domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
+
   const queries = [
     `"@${domain}"`,
     `contact email site:${domain}`,
@@ -266,28 +347,8 @@ async function searchWebForEmails(domain: string): Promise<Array<{ email: string
       const html = await fetchPage(url);
       if (!html) continue;
 
-      const $ = cheerio.load(html);
-
-      // Extract emails from snippet text directly
-      const snippetText = $('.result__snippet, .result__body, .result__title').map((_, el) => $(el).text()).get().join(' ');
-      const inlineMatches = snippetText.match(domainEmailRegex) || [];
-      for (const email of inlineMatches) {
-        const lowerEmail = email.toLowerCase();
-        if (isValidEmail(lowerEmail) && !results.some(r => r.email === lowerEmail)) {
-          results.push({ email: lowerEmail, name: extractName(lowerEmail, snippetText), source: 'scraped' });
-        }
-      }
-
-      // Also scan full HTML for domain-matching emails (sometimes in obfuscated text)
-      if (results.length === 0) {
-        const fullMatches = html.match(domainEmailRegex) || [];
-        for (const email of fullMatches) {
-          const lowerEmail = email.toLowerCase();
-          if (isValidEmail(lowerEmail) && !results.some(r => r.email === lowerEmail)) {
-            results.push({ email: lowerEmail, name: null, source: 'scraped' });
-          }
-        }
-      }
+      const found = extractEmailsFromSearchHtml(html, domain, ['.result__snippet', '.result__body', '.result__title']);
+      results.push(...found);
     } catch (error) {
       logger.debug(`DuckDuckGo search failed for ${domain}:`, error);
     }
@@ -297,6 +358,55 @@ async function searchWebForEmails(domain: string): Promise<Array<{ email: string
     logger.info(`DuckDuckGo found ${results.length} email(s) for ${domain}`);
   }
   return results;
+}
+
+// Search the web for emails — tries Google first, falls back to DuckDuckGo
+async function searchWebForEmails(domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  // Try Google first (better indexing coverage)
+  const googleResults = await searchGoogleForEmails(domain);
+  if (googleResults.length > 0) return googleResults;
+
+  // Fall back to DuckDuckGo (never blocks, always works)
+  return await searchDuckDuckGoForEmails(domain);
+}
+
+// Run a single query against Google then DuckDuckGo and extract domain emails
+async function searchQueryForEmails(query: string, domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  // Try Google first
+  try {
+    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10`;
+    const response = await fetch(googleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (response.ok) {
+      const html = await response.text();
+      if (!html.includes('detected unusual traffic') && !html.includes('captcha')) {
+        const found = extractEmailsFromSearchHtml(html, domain, ['.VwiC3b', '.st', '.s3v9rd', 'span.aCOpRe']);
+        if (found.length > 0) return found;
+      }
+    }
+  } catch (error) {
+    logger.debug(`Google query search failed:`, error);
+  }
+
+  // Fall back to DuckDuckGo
+  try {
+    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const html = await fetchPage(ddgUrl);
+    if (html) {
+      return extractEmailsFromSearchHtml(html, domain, ['.result__snippet', '.result__body', '.result__title']);
+    }
+  } catch (error) {
+    logger.debug(`DuckDuckGo query search failed:`, error);
+  }
+
+  return [];
 }
 
 // WHOIS/RDAP lookup — domain registration sometimes has admin email (free, no auth)
@@ -309,7 +419,7 @@ async function lookupWhoisEmail(domain: string): Promise<Array<{ email: string; 
       signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) return results;
-    const data = await response.json();
+    const data = await response.json() as any;
 
     // Recursively extract emails from RDAP entities and their vcardArrays
     const processEntity = (entity: any) => {
@@ -469,7 +579,7 @@ async function findContactsByScraping(
     contacts.push(...whoisResults);
   }
 
-  // Step 5: DuckDuckGo web search — generic + targeted with author name if found
+  // Step 5: Web search (Google first, DuckDuckGo fallback)
   if (contacts.length === 0) {
     logger.debug(`Trying web search for ${domain}`);
     const webResults = await searchWebForEmails(domain);
@@ -483,36 +593,15 @@ async function findContactsByScraping(
       `"${foundAuthorName}" "@${domain}"`,
       `"${foundAuthorName}" email ${domain}`,
     ];
-    const domainEmailRegex = new RegExp(`[a-zA-Z0-9._%+\\-]+@${domain.replace('.', '\\.')}`, 'gi');
 
     for (const query of nameQueries) {
       if (contacts.length > 0) break;
-      try {
-        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-        const html = await fetchPage(url);
-        if (!html) continue;
-
-        const $ = cheerio.load(html);
-        const snippetText = $('.result__snippet, .result__body, .result__title').map((_, el) => $(el).text()).get().join(' ');
-        const matches = snippetText.match(domainEmailRegex) || [];
-        for (const email of matches) {
-          const lowerEmail = email.toLowerCase();
-          if (isValidEmail(lowerEmail) && !contacts.some(c => c.email === lowerEmail)) {
-            contacts.push({ email: lowerEmail, name: foundAuthorName, source: 'scraped' });
-          }
+      // Try Google first, then DuckDuckGo
+      const found = await searchQueryForEmails(query, domain);
+      for (const result of found) {
+        if (!contacts.some(c => c.email === result.email)) {
+          contacts.push({ ...result, name: foundAuthorName });
         }
-
-        if (contacts.length === 0) {
-          const fullMatches = html.match(domainEmailRegex) || [];
-          for (const email of fullMatches) {
-            const lowerEmail = email.toLowerCase();
-            if (isValidEmail(lowerEmail) && !contacts.some(c => c.email === lowerEmail)) {
-              contacts.push({ email: lowerEmail, name: foundAuthorName, source: 'scraped' });
-            }
-          }
-        }
-      } catch (error) {
-        logger.debug(`Targeted name search failed:`, error);
       }
     }
     if (contacts.length > 0) {
@@ -525,27 +614,15 @@ async function findContactsByScraping(
     const socialHandles = extractSocialHandles(articleHtml);
     if (socialHandles.length > 0) {
       logger.debug(`Found ${socialHandles.length} social handle(s), searching for associated emails`);
-      const domainEmailRegex = new RegExp(`[a-zA-Z0-9._%+\\-]+@${domain.replace('.', '\\.')}`, 'gi');
 
       for (const { handle } of socialHandles) {
         if (contacts.length > 0) break;
-        try {
-          const query = `"@${handle}" email "@${domain}"`;
-          const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-          const html = await fetchPage(url);
-          if (!html) continue;
-
-          const $ = cheerio.load(html);
-          const snippetText = $('.result__snippet, .result__body').map((_, el) => $(el).text()).get().join(' ');
-          const matches = (snippetText + ' ' + html).match(domainEmailRegex) || [];
-          for (const email of matches) {
-            const lowerEmail = email.toLowerCase();
-            if (isValidEmail(lowerEmail) && !contacts.some(c => c.email === lowerEmail)) {
-              contacts.push({ email: lowerEmail, name: null, source: 'scraped' });
-            }
+        const query = `"@${handle}" email "@${domain}"`;
+        const found = await searchQueryForEmails(query, domain);
+        for (const result of found) {
+          if (!contacts.some(c => c.email === result.email)) {
+            contacts.push(result);
           }
-        } catch (error) {
-          logger.debug(`Social handle search failed for @${handle}:`, error);
         }
       }
       if (contacts.length > 0) {
