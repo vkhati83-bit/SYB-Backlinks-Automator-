@@ -246,7 +246,7 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
     await emailSenderQueue.add('send-email', { emailId: req.params.id });
 
     // Log audit
-    await auditRepository.logEmailApproved(req.params.id as string, 'system');
+    await auditRepository.logEmailApproved(req.params.id as string);
 
     res.json({ success: true, message: 'Email approved and queued for sending' });
   } catch (error) {
@@ -275,7 +275,7 @@ router.post('/:id/reject', async (req: Request, res: Response) => {
     `, [reason || 'No reason provided', req.params.id]);
 
     // Log audit
-    await auditRepository.logEmailRejected(req.params.id as string, 'system', reason || 'No reason provided');
+    await auditRepository.logEmailRejected(req.params.id as string, undefined, reason || 'No reason provided');
 
     res.json({ success: true, message: 'Email rejected' });
   } catch (error) {

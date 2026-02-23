@@ -44,11 +44,11 @@ export class AuditRepository extends BaseRepository<AuditLog> {
     await this.log({ action: 'email_generated', entity_type: 'email', entity_id: emailId, details: { prospect_id: prospectId } });
   }
 
-  async logEmailApproved(emailId: string, userId: string): Promise<void> {
+  async logEmailApproved(emailId: string, userId?: string): Promise<void> {
     await this.log({ action: 'email_approved', entity_type: 'email', entity_id: emailId, user_id: userId });
   }
 
-  async logEmailRejected(emailId: string, userId: string, reason: string): Promise<void> {
+  async logEmailRejected(emailId: string, userId: string | undefined, reason: string): Promise<void> {
     await this.log({ action: 'email_rejected', entity_type: 'email', entity_id: emailId, user_id: userId, details: { reason } });
   }
 
