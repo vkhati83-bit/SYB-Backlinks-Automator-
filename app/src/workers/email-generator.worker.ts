@@ -40,8 +40,13 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     : (settings.email_template_research || undefined);
 
   // Look up research category for research_citation emails
+  // When found, use the research DB as the primary citation URL (not the blog article)
   let researchCategoryName: string | undefined;
   let researchStudyCount: number | undefined;
+  let suggestedArticleUrl = prospect.suggested_article_url;
+  let suggestedArticleTitle = prospect.suggested_article_title;
+  let matchReason = prospect.match_reason;
+
   if (prospect.opportunity_type === 'research_citation') {
     const researchMatch = await findResearchCategory(
       (prospect as any).keyword || '',
@@ -51,6 +56,10 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     if (researchMatch) {
       researchCategoryName = researchMatch.category_name;
       researchStudyCount = researchMatch.study_count;
+      // Override: point to the research DB, not a blog article
+      suggestedArticleUrl = 'https://shieldyourbody.com/research';
+      suggestedArticleTitle = `${researchMatch.category_name} Research — ${researchMatch.study_count}+ peer-reviewed studies`;
+      matchReason = researchMatch.ai_synthesis || `Directly relevant to their ${researchMatch.category_name.toLowerCase()} content`;
     }
   }
 
@@ -64,9 +73,9 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     contactEmail: contact.email,
     opportunityType: prospect.opportunity_type,
     pageContent: (prospect as any).page_content || undefined,
-    suggestedArticleUrl: prospect.suggested_article_url,
-    suggestedArticleTitle: prospect.suggested_article_title,
-    matchReason: prospect.match_reason,
+    suggestedArticleUrl,
+    suggestedArticleTitle,
+    matchReason,
     brokenUrl: (prospect as any).broken_url,
     researchCategoryName,
     researchStudyCount,
