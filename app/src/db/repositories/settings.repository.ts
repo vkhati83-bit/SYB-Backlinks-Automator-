@@ -44,7 +44,7 @@ export class SettingsRepository {
 
     return {
       sender_name: settings.sender_name as string || 'SYB Research Team',
-      sender_email: settings.sender_email as string || 'outreach@mail.shieldyourbody.com',
+      sender_email: settings.sender_email as string || 'outreach@shieldyourbody.com',
       daily_send_limit: settings.daily_send_limit as number || 20,
       followup_1_delay_days: settings.followup_1_delay_days as number || 4,
       followup_2_delay_days: settings.followup_2_delay_days as number || 8,
