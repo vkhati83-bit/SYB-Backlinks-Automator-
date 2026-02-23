@@ -153,7 +153,7 @@ async function generateBrokenLinkEmail(input: EmailGenerationInput): Promise<Gen
     : '';
 
   const pitch = input.suggestedArticleUrl
-    ? `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our specific article as a replacement. The article title MUST be followed immediately by its URL in parentheses, exactly like this: "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}). Describe what the article covers. When mentioning that the article is backed by peer-reviewed research, include the research database URL using the placeholder [RESEARCH_URL], for example: "backed by peer-reviewed research ([RESEARCH_URL])". Be helpful, not opportunistic.`
+    ? `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our specific article as a replacement. The article title MUST be followed immediately by its URL in parentheses, exactly like this: "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}). Describe what the article covers. Then, as a final separate sentence before the CTA, suggest the research database as additional reading using the placeholder [RESEARCH_URL], for example: "For more information, you can also browse our EMF research database: [RESEARCH_URL]". Be helpful, not opportunistic.`
     : `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our research database at [RESEARCH_URL] as a relevant replacement resource. Be helpful, not opportunistic.`;
 
   const templateSection = input.emailTemplate
