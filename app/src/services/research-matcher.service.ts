@@ -53,6 +53,7 @@ export async function findResearchCategory(
   url: string
 ): Promise<ResearchCategoryMatch | null> {
   if (!researchDb) {
+    logger.warn('findResearchCategory: researchDb is null, skipping');
     return null;
   }
 
@@ -64,6 +65,7 @@ export async function findResearchCategory(
     for (const [topic, slugs] of Object.entries(TOPIC_KEYWORD_MAP)) {
       if (text.includes(topic)) {
         bestSlug = slugs[0];
+        logger.info(`Research category: matched topic "${topic}" → slug "${bestSlug}"`);
         break;
       }
     }
@@ -76,11 +78,13 @@ export async function findResearchCategory(
         WHERE slug = $1 AND study_count > 0
         LIMIT 1
       `, [bestSlug]);
+      logger.info(`Research category slug query rows: ${result.rows.length}`);
     }
 
     // Fallback: text search on category names
     if (!result || result.rows.length === 0) {
       const words = keyword.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+      logger.info(`Research category: slug miss, trying text search with words: ${JSON.stringify(words)}`);
       if (words.length > 0) {
         result = await researchDb.query(`
           SELECT name, slug, study_count, ai_synthesis
@@ -90,11 +94,13 @@ export async function findResearchCategory(
           ORDER BY study_count DESC
           LIMIT 1
         `, [words.map(w => `%${w}%`)]);
+        logger.info(`Research category text search rows: ${result.rows.length}`);
       }
     }
 
     // Final fallback: return largest general category
     if (!result || result.rows.length === 0) {
+      logger.info('Research category: using final fallback (largest category)');
       result = await researchDb.query(`
         SELECT name, slug, study_count, ai_synthesis
         FROM categories
@@ -102,11 +108,16 @@ export async function findResearchCategory(
         ORDER BY study_count DESC
         LIMIT 1
       `);
+      logger.info(`Research category final fallback rows: ${result.rows.length}`);
     }
 
-    if (!result || result.rows.length === 0) return null;
+    if (!result || result.rows.length === 0) {
+      logger.warn('Research category: no category found at all');
+      return null;
+    }
 
     const row = result.rows[0];
+    logger.info(`Research category matched: ${row.name} (${row.slug}), ${row.study_count} studies`);
     return {
       category_name: row.name,
       study_count: row.study_count,
