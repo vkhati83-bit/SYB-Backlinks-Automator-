@@ -54,13 +54,13 @@ router.post('/generate', async (req: Request, res: Response) => {
         prospect.url || ''
       );
       if (researchMatch) {
-        suggestedArticleUrl = `https://shieldyourbody.com/research?category=${researchMatch.slug}`;
-        suggestedArticleTitle = `${researchMatch.category_name} Research (${researchMatch.study_count}+ peer-reviewed studies)`;
-        matchReason = researchMatch.ai_synthesis || matchReason;
-        researchCategoryName = researchMatch.category_name;
-        researchStudyCount = researchMatch.study_count;
+        suggestedArticleUrl = researchMatch.researchUrl;
+        suggestedArticleTitle = `${researchMatch.studyCount}+ peer-reviewed studies on "${researchMatch.searchTerm}"`;
+        matchReason = `Directly relevant to their ${researchMatch.searchTerm} content`;
+        researchCategoryName = researchMatch.searchTerm;
+        researchStudyCount = researchMatch.studyCount;
       } else {
-        suggestedArticleUrl = 'https://shieldyourbody.com/research';
+        suggestedArticleUrl = 'https://www.shieldyourbody.com/research/studies?q=radiofrequency';
         suggestedArticleTitle = 'SYB EMF Research Database (3,600+ peer-reviewed studies)';
       }
     }

@@ -54,14 +54,13 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
       prospect.url || ''
     );
     if (researchMatch) {
-      researchCategoryName = researchMatch.category_name;
-      researchStudyCount = researchMatch.study_count;
-      suggestedArticleUrl = `https://shieldyourbody.com/research?category=${researchMatch.slug}`;
-      suggestedArticleTitle = `${researchMatch.category_name} Research (${researchMatch.study_count}+ peer-reviewed studies)`;
-      matchReason = researchMatch.ai_synthesis || `Directly relevant to their ${researchMatch.category_name.toLowerCase()} content`;
+      researchCategoryName = researchMatch.searchTerm;
+      researchStudyCount = researchMatch.studyCount;
+      suggestedArticleUrl = researchMatch.researchUrl;
+      suggestedArticleTitle = `${researchMatch.studyCount}+ peer-reviewed studies on "${researchMatch.searchTerm}"`;
+      matchReason = `Directly relevant to their ${researchMatch.searchTerm} content`;
     } else {
-      // Always point to research DB for research_citation, never a blog article
-      suggestedArticleUrl = 'https://shieldyourbody.com/research';
+      suggestedArticleUrl = 'https://www.shieldyourbody.com/research/studies?q=radiofrequency';
       suggestedArticleTitle = 'SYB EMF Research Database (3,600+ peer-reviewed studies)';
       matchReason = matchReason || 'Relevant EMF research they can cite';
     }
