@@ -417,17 +417,40 @@ export default function ProspectDetail({
         </div>
       )}
 
-      {/* Suggested Article (for any prospect with a match) */}
-      {prospect.suggested_article_url && (
+      {/* Research DB Citation (for research_citation prospects) */}
+      {!isBrokenLink && (
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
           <div className="flex items-start gap-2">
             <svg className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="flex-1">
-              <div className="text-sm font-medium text-green-800">
-                {isBrokenLink ? 'Suggested Replacement Article' : 'Suggested SYB Article to Cite'}
-              </div>
+              <div className="text-sm font-medium text-green-800">Research DB Citation</div>
+              <a
+                href="https://shieldyourbody.com/research"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-green-700 hover:underline block mt-1"
+              >
+                shieldyourbody.com/research — 3,600+ peer-reviewed studies
+              </a>
+              {prospect.match_reason && (
+                <div className="text-xs text-green-600 mt-1">{prospect.match_reason}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Suggested Replacement Article (for broken_link prospects only) */}
+      {isBrokenLink && prospect.suggested_article_url && (
+        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-start gap-2">
+            <svg className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div className="flex-1">
+              <div className="text-sm font-medium text-green-800">Suggested Replacement Article</div>
               <a
                 href={prospect.suggested_article_url}
                 target="_blank"
@@ -437,9 +460,7 @@ export default function ProspectDetail({
                 {prospect.suggested_article_title || prospect.suggested_article_url}
               </a>
               {prospect.match_reason && (
-                <div className="text-xs text-green-600 mt-1">
-                  {prospect.match_reason}
-                </div>
+                <div className="text-xs text-green-600 mt-1">{prospect.match_reason}</div>
               )}
             </div>
           </div>
