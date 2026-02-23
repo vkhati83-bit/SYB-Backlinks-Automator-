@@ -587,13 +587,15 @@ export default function ProspectDetail({
 
       {/* Actions */}
       <div className="flex gap-2 pt-4 border-t border-gray-100">
-        <button
-          onClick={handleComposeEmail}
-          disabled={contacts.length === 0}
-          className="btn btn-primary flex-1"
-        >
-          Compose Email
-        </button>
+        {prospect.approval_status === 'approved' && (
+          <button
+            onClick={handleComposeEmail}
+            disabled={contacts.length === 0}
+            className="btn btn-primary flex-1"
+          >
+            Compose Email
+          </button>
+        )}
         <button
           onClick={handleFindEmails}
           disabled={findingEmails}
