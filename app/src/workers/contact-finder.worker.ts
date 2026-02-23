@@ -14,7 +14,7 @@ export interface ContactFinderJobData {
   domain: string;
 }
 
-// Common contact page paths
+// Common contact page paths (expanded)
 const CONTACT_PATHS = [
   '/contact',
   '/contact-us',
@@ -23,8 +23,16 @@ const CONTACT_PATHS = [
   '/write-for-us',
   '/contribute',
   '/team',
+  '/our-team',
   '/author',
   '/staff',
+  '/people',
+  '/contributors',
+  '/writers',
+  '/editorial',
+  '/editorial-team',
+  '/masthead',
+  '/editors',
 ];
 
 // Email regex pattern
@@ -291,6 +299,93 @@ async function searchWebForEmails(domain: string): Promise<Array<{ email: string
   return results;
 }
 
+// WHOIS/RDAP lookup — domain registration sometimes has admin email (free, no auth)
+async function lookupWhoisEmail(domain: string): Promise<Array<{ email: string; name: string | null; source: 'scraped' }>> {
+  const results: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
+  try {
+    const rdapUrl = `https://rdap.org/domain/${domain}`;
+    const response = await fetch(rdapUrl, {
+      headers: { 'Accept': 'application/rdap+json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return results;
+    const data = await response.json();
+
+    // Recursively extract emails from RDAP entities and their vcardArrays
+    const processEntity = (entity: any) => {
+      if (entity.vcardArray && Array.isArray(entity.vcardArray[1])) {
+        const vcard = entity.vcardArray[1];
+        for (const prop of vcard) {
+          if (prop[0] === 'email' && typeof prop[3] === 'string') {
+            const email = prop[3].toLowerCase();
+            if (isValidEmail(email) && !results.some(r => r.email === email)) {
+              const fnProp = vcard.find((p: any) => p[0] === 'fn');
+              const name = fnProp ? fnProp[3] : null;
+              results.push({ email, name, source: 'scraped' });
+            }
+          }
+        }
+      }
+      // Check nested entities
+      if (entity.entities) {
+        for (const sub of entity.entities) processEntity(sub);
+      }
+    };
+
+    if (data.entities) {
+      for (const entity of data.entities) processEntity(entity);
+    }
+  } catch (error) {
+    logger.debug(`RDAP lookup failed for ${domain}:`, error);
+  }
+
+  if (results.length > 0) {
+    logger.info(`WHOIS/RDAP found ${results.length} email(s) for ${domain}`);
+  }
+  return results;
+}
+
+// Extract links to individual profile/bio pages from team/staff pages
+function extractProfileLinks(html: string, origin: string): string[] {
+  const $ = cheerio.load(html);
+  const links: string[] = [];
+  const seen = new Set<string>();
+
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href') || '';
+    if (/\/(team|staff|people|author|contributor|writer|about|member)\//i.test(href)) {
+      try {
+        const fullUrl = href.startsWith('http') ? href : `${origin}${href.startsWith('/') ? href : '/' + href}`;
+        if (!seen.has(fullUrl) && fullUrl.startsWith(origin)) {
+          seen.add(fullUrl);
+          links.push(fullUrl);
+        }
+      } catch (_) {}
+    }
+  });
+
+  return links.slice(0, 5); // max 5 profile pages
+}
+
+// Extract social media handles from page HTML (for targeted web search)
+function extractSocialHandles(html: string): Array<{ platform: string; handle: string }> {
+  const $ = cheerio.load(html);
+  const handles: Array<{ platform: string; handle: string }> = [];
+  const seen = new Set<string>();
+
+  $('a[href]').each((_, el) => {
+    const href = $(el).attr('href') || '';
+    // Twitter/X
+    const twitterMatch = href.match(/(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]{1,15})\/?$/);
+    if (twitterMatch && !seen.has(twitterMatch[1]) && !['share', 'intent', 'hashtag', 'search'].includes(twitterMatch[1])) {
+      seen.add(twitterMatch[1]);
+      handles.push({ platform: 'twitter', handle: twitterMatch[1] });
+    }
+  });
+
+  return handles.slice(0, 2);
+}
+
 // Try to find contacts by scraping — article page → author pages → contact pages → web search
 async function findContactsByScraping(
   domain: string,
@@ -299,6 +394,7 @@ async function findContactsByScraping(
   const contacts: Array<{ email: string; name: string | null; source: 'scraped' }> = [];
   const triedUrls = new Set<string>();
   const origin = new URL(baseUrl).origin;
+  let foundAuthorName: string | null = null; // Track author name for targeted searches later
 
   const addEmails = (emails: Array<{ email: string; context: string }>, authorName?: string | null) => {
     for (const { email, context } of emails) {
@@ -323,6 +419,7 @@ async function findContactsByScraping(
       const authorLinks = extractAuthorLinks(articleHtml, origin);
       logger.debug(`Found ${authorLinks.length} author links on article page`);
       for (const { url: authorUrl, name: authorName } of authorLinks) {
+        if (authorName) foundAuthorName = authorName; // Save for later targeted search
         if (triedUrls.has(authorUrl)) continue;
         triedUrls.add(authorUrl);
         const authorHtml = await fetchPage(authorUrl);
@@ -334,7 +431,7 @@ async function findContactsByScraping(
     }
   }
 
-  // Step 3: Try standard contact/about pages
+  // Step 3: Try standard contact/about/team pages + follow links to individual profiles
   if (contacts.length === 0) {
     for (const path of CONTACT_PATHS) {
       const contactUrl = `${origin}${path}`;
@@ -346,14 +443,115 @@ async function findContactsByScraping(
 
       addEmails(extractEmails(html));
       if (contacts.length > 0) break;
+
+      // On team/staff/people pages, follow links to individual profile pages
+      if (/\/(team|staff|people|our-team|editorial|masthead|editors|contributors|writers)$/.test(path)) {
+        const profileLinks = extractProfileLinks(html, origin);
+        logger.debug(`Found ${profileLinks.length} profile links on ${path}`);
+        for (const profileUrl of profileLinks) {
+          if (triedUrls.has(profileUrl)) continue;
+          triedUrls.add(profileUrl);
+          const profileHtml = await fetchPage(profileUrl);
+          if (profileHtml) {
+            addEmails(extractEmails(profileHtml));
+            if (contacts.length > 0) break;
+          }
+        }
+        if (contacts.length > 0) break;
+      }
     }
   }
 
-  // Step 4: Search the web for publicly indexed emails (DuckDuckGo)
+  // Step 4: WHOIS/RDAP lookup (domain registration email)
   if (contacts.length === 0) {
-    logger.debug(`No contacts found via scraping, trying web search for ${domain}`);
+    logger.debug(`Trying WHOIS/RDAP lookup for ${domain}`);
+    const whoisResults = await lookupWhoisEmail(domain);
+    contacts.push(...whoisResults);
+  }
+
+  // Step 5: DuckDuckGo web search — generic + targeted with author name if found
+  if (contacts.length === 0) {
+    logger.debug(`Trying web search for ${domain}`);
     const webResults = await searchWebForEmails(domain);
     contacts.push(...webResults);
+  }
+
+  // Step 6: Targeted web search using author name (if we found one from Step 2)
+  if (contacts.length === 0 && foundAuthorName) {
+    logger.debug(`Trying targeted name search: "${foundAuthorName}" + ${domain}`);
+    const nameQueries = [
+      `"${foundAuthorName}" "@${domain}"`,
+      `"${foundAuthorName}" email ${domain}`,
+    ];
+    const domainEmailRegex = new RegExp(`[a-zA-Z0-9._%+\\-]+@${domain.replace('.', '\\.')}`, 'gi');
+
+    for (const query of nameQueries) {
+      if (contacts.length > 0) break;
+      try {
+        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        const html = await fetchPage(url);
+        if (!html) continue;
+
+        const $ = cheerio.load(html);
+        const snippetText = $('.result__snippet, .result__body, .result__title').map((_, el) => $(el).text()).get().join(' ');
+        const matches = snippetText.match(domainEmailRegex) || [];
+        for (const email of matches) {
+          const lowerEmail = email.toLowerCase();
+          if (isValidEmail(lowerEmail) && !contacts.some(c => c.email === lowerEmail)) {
+            contacts.push({ email: lowerEmail, name: foundAuthorName, source: 'scraped' });
+          }
+        }
+
+        if (contacts.length === 0) {
+          const fullMatches = html.match(domainEmailRegex) || [];
+          for (const email of fullMatches) {
+            const lowerEmail = email.toLowerCase();
+            if (isValidEmail(lowerEmail) && !contacts.some(c => c.email === lowerEmail)) {
+              contacts.push({ email: lowerEmail, name: foundAuthorName, source: 'scraped' });
+            }
+          }
+        }
+      } catch (error) {
+        logger.debug(`Targeted name search failed:`, error);
+      }
+    }
+    if (contacts.length > 0) {
+      logger.info(`Targeted name search found ${contacts.length} email(s) for "${foundAuthorName}" @ ${domain}`);
+    }
+  }
+
+  // Step 7: Social handle web search — find Twitter/X handles and search for their email
+  if (contacts.length === 0 && articleHtml) {
+    const socialHandles = extractSocialHandles(articleHtml);
+    if (socialHandles.length > 0) {
+      logger.debug(`Found ${socialHandles.length} social handle(s), searching for associated emails`);
+      const domainEmailRegex = new RegExp(`[a-zA-Z0-9._%+\\-]+@${domain.replace('.', '\\.')}`, 'gi');
+
+      for (const { handle } of socialHandles) {
+        if (contacts.length > 0) break;
+        try {
+          const query = `"@${handle}" email "@${domain}"`;
+          const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+          const html = await fetchPage(url);
+          if (!html) continue;
+
+          const $ = cheerio.load(html);
+          const snippetText = $('.result__snippet, .result__body').map((_, el) => $(el).text()).get().join(' ');
+          const matches = (snippetText + ' ' + html).match(domainEmailRegex) || [];
+          for (const email of matches) {
+            const lowerEmail = email.toLowerCase();
+            if (isValidEmail(lowerEmail) && !contacts.some(c => c.email === lowerEmail)) {
+              contacts.push({ email: lowerEmail, name: null, source: 'scraped' });
+            }
+          }
+        } catch (error) {
+          logger.debug(`Social handle search failed for @${handle}:`, error);
+        }
+      }
+      if (contacts.length > 0) {
+        logger.info(`Social handle search found ${contacts.length} email(s) for ${domain}`);
+      }
+    }
   }
 
   return contacts;
