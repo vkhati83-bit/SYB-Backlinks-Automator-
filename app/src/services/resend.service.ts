@@ -17,11 +17,18 @@ export interface SendEmailResult {
   error?: string;
 }
 
-// Convert plain text body to simple HTML
+// Convert plain text body to HTML with proper paragraph grouping
 function textToHtml(text: string): string {
-  return text
-    .split('\n')
-    .map(line => `<p>${line || '&nbsp;'}</p>`)
+  // Split on double newlines for paragraph breaks
+  const paragraphs = text.split(/\n\n+/);
+  return paragraphs
+    .map(para => {
+      if (!para.trim()) return '';
+      // Within a paragraph, convert single newlines to <br>
+      const html = para.trim().replace(/\n/g, '<br>');
+      return `<p>${html}</p>`;
+    })
+    .filter(p => p !== '')
     .join('\n');
 }
 
