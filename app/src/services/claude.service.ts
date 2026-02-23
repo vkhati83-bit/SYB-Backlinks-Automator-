@@ -47,10 +47,11 @@ TONE GUIDELINES:
 - Never use phrases like "I hope this email finds you well" or "I stumbled upon your article"
 
 EMAIL STRUCTURE:
-1. Brief, personalized opener referencing their specific work
-2. Value proposition - how SYB's research can help their readers
-3. Soft call-to-action
-4. Professional sign-off
+1. Opening greeting: "Hi [Name]," on its own line (use "Hi there," if no name is provided)
+2. Brief, personalized opener referencing their specific work
+3. Value proposition - how SYB's research can help their readers
+4. Soft call-to-action
+5. Professional sign-off (added automatically — do NOT include)
 
 IMPORTANT:
 - Keep emails under 150 words
