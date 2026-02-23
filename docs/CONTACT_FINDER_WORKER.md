@@ -2,6 +2,8 @@
 
 You click "Find Emails" on a prospect. It goes through 12 steps, one by one. As soon as it finds a real email, it stops. It never makes up emails.
 
+There's also a "Retry Failed" button that re-queues every approved prospect with 0 contacts found. Useful after we add new tricks — re-runs the whole pipeline on ones that came up empty.
+
 ## The Steps
 
 **Free stuff first (Steps 1-10):**
@@ -60,6 +62,7 @@ Every page it visits gets scanned 13 different ways. Not just visible text — i
 - Results are saved for 30 days. Same domain = instant lookup the second time
 - If the email looks like `jane.smith@`, it turns that into "Jane Smith" automatically
 - Generic prefixes like `info@` or `editor@` don't get a fake name attached
+- "Retry Failed" doesn't touch the cache — failed lookups aren't cached, so retries always run fresh
 
 ## Best upgrade option: Snov.io
 
@@ -70,6 +73,15 @@ If you want to seriously boost the hit rate, [Snov.io](https://snov.io/pricing) 
 - **Pro S:** $74/month for 5,000 credits
 
 What makes it good: domain search (give it a domain, get back emails), 50M+ company database, bulk search, and a clean REST API. One credit = one email lookup. Not integrated yet but easy to add before Apollo/Hunter.
+
+## API Endpoints
+
+| Endpoint | What it does |
+|----------|-------------|
+| `POST /api/v1/contacts/retry-failed` | Re-queues all approved prospects with 0 contacts |
+| `POST /api/v1/contacts/:id/find` | Trigger email finder for one prospect |
+| `GET /api/v1/contacts/:id` | Get contacts for a prospect |
+| `POST /api/v1/contacts/:id/use` | Set primary contact + queue email generation |
 
 ## Files
 
