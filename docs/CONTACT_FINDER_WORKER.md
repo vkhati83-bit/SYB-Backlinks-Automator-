@@ -1,61 +1,51 @@
-# Contact Finder Worker
+# How the Email Finder Works
 
-**File:** `app/src/workers/contact-finder.worker.ts`
+You click "Find Emails" on a prospect. It goes through 9 steps, one by one. As soon as it finds a real email, it stops. It never makes up emails.
 
-Click "Find Emails" on a prospect. The worker runs 7 free steps in order and **stops as soon as it finds a real email**. If all 7 fail, Hunter.io kicks in as the last resort.
+## The Steps
 
----
+**Free stuff first (Steps 1-7):**
 
-## The 7 Steps
+1. **Check the article page** — looks for email links and plain-text emails right on the page
+2. **Check the author's page** — follows "Written by..." links to their profile page
+3. **Check common pages** — tries `/contact`, `/team`, `/about`, `/staff`, and 13 other paths. On team pages, clicks into each person's profile too
+4. **Check domain records** — asks the internet "who registered this domain?" Sometimes there's an email there
+5. **Google it** — searches Google for `"@theirdomain.com"`. Falls back to DuckDuckGo if Google blocks us
+6. **Google the author** — if Step 2 found a name like "Jane Smith", searches for `"Jane Smith" "@theirdomain.com"`
+7. **Check their Twitter** — grabs their Twitter handle from the page and searches for it alongside their email
 
-| Step | What it does |
-|------|-------------|
-| **1. Scrape the article page** | Looks for `mailto:` links and plain-text emails on the prospect URL |
-| **2. Follow author links** | Finds the author's profile page (via `rel="author"`, JSON-LD, byline classes) and scrapes it. Saves the author name for Step 6 |
-| **3. Contact/team pages** | Tries 17 common paths (`/contact`, `/team`, `/about`, `/staff`, `/writers`, etc.). On team pages, also follows links to individual profile pages |
-| **4. WHOIS/RDAP lookup** | Queries domain registration records for an admin email |
-| **5. Web search** | Searches Google (then DuckDuckGo as fallback) for `"@domain.com"` and `contact email site:domain.com` |
-| **6. Targeted name search** | If Step 2 found an author name, searches Google/DDG for `"Jane Smith" "@domain.com"` |
-| **7. Social handle search** | Finds Twitter/X handles on the page and searches for `"@handle" email "@domain.com"` |
+**Paid fallbacks (only if free steps found nothing):**
 
-**Step 8 (last resort):** Hunter.io API — only fires when all 7 free steps found nothing. 25 free lookups/month.
+8. **Apollo.io** — searches their database for people at that company, then looks up the email. Costs 1 credit per email found
+9. **Hunter.io** — absolute last resort. 25 free lookups per month
 
----
+## Junk it ignores
 
-## What Gets Filtered Out
+- `abuse@`, `noreply@` addresses
+- Emails from hosting companies (Namecheap, GoDaddy, Cloudflare, etc.)
+- Throwaway email services (Mailinator, etc.)
+- Anything you've manually blocked
 
-- `abuse@`, `noreply@`, `no-reply@` prefixes
-- Disposable email services (Mailinator, etc.)
-- Registrar/hosting domains (Namecheap, GoDaddy, Cloudflare, etc. — 30+ blocked)
-- `@example.com`, `@test.com`
-- Manually blocklisted emails
+## How good is the email?
 
----
+| Grade | What it means |
+|-------|--------------|
+| **A** | Found it AND know the person's name |
+| **B** | Found it but don't know who it belongs to |
+| **D** | Came from Apollo or Hunter |
 
-## Confidence Tiers
+## Good to know
 
-| Tier | Meaning |
-|------|---------|
-| **A** | Found by scraping + real name identified |
-| **B** | Found by scraping, no name |
-| **D** | Found by Hunter.io |
-
----
-
-## Other Details
-
-- **Caching:** Results cached in Redis for 30 days per domain
-- **No guessing:** Never invents pattern emails like `editor@domain.com`
-- **Name detection:** Extracts names from surrounding text or from the email itself (`jane.smith@` becomes "Jane Smith")
-
----
+- Results are saved for 30 days. Same domain = instant lookup the second time
+- If the email looks like `jane.smith@`, it turns that into "Jane Smith" automatically
+- Generic prefixes like `info@` or `editor@` don't get a fake name attached
 
 ## Files
 
-| File | Role |
-|------|------|
-| `app/src/workers/contact-finder.worker.ts` | Main worker |
-| `app/src/services/contact-intelligence.service.ts` | Hunter.io + Google LinkedIn (paid APIs) |
-| `app/src/services/decision-maker.service.ts` | Scores and ranks contacts |
-| `app/src/services/contact-cache.service.ts` | Redis caching (30-day TTL) |
-| `app/src/api/routes/contacts.routes.ts` | REST endpoints |
+| File | What it does |
+|------|-------------|
+| `app/src/workers/contact-finder.worker.ts` | The main worker |
+| `app/src/services/contact-intelligence.service.ts` | Apollo + Hunter + Google LinkedIn |
+| `app/src/services/decision-maker.service.ts` | Picks the best email when there are several |
+| `app/src/services/contact-cache.service.ts` | 30-day cache |
+| `app/src/api/routes/contacts.routes.ts` | API endpoints |
