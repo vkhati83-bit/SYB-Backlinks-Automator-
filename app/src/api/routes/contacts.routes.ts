@@ -4,13 +4,28 @@ import logger from '../../utils/logger.js';
 
 const router = Router();
 
-// POST /api/v1/contacts/retry-failed - Retry contact finder for all prospects with 0 contacts
+// POST /api/v1/contacts/retry-failed - Retry contact finder for all prospects with 0 real contacts
 router.post('/retry-failed', async (req: Request, res: Response) => {
   try {
     const { contactFinderQueue } = await import('../../config/queues.js');
     const { db } = await import('../../db/index.js');
 
-    // Find all approved prospects with 0 contacts
+    // Junk email domains to exclude when counting "real" contacts
+    const junkDomains = [
+      'namecheap.com', 'godaddy.com', 'tucows.com', 'enom.com', 'networksolutions.com',
+      'porkbun.com', 'cloudflare.com', 'squarespace.com', 'wix.com', 'wixpress.com',
+      'wordpress.com', 'shopify.com', 'bluehost.com', 'hostgator.com', 'siteground.com',
+      'dreamhost.com', 'markmonitor.com', 'namebright.com', 'amazonaws.com',
+    ];
+
+    // First: delete junk contacts from DB
+    const junkLike = junkDomains.map(d => `c.email LIKE '%@${d}'`).join(' OR ');
+    const deleteResult = await db.query(`
+      DELETE FROM contacts c WHERE ${junkLike} OR c.email LIKE 'abuse@%' OR c.email LIKE 'noreply@%'
+    `);
+    const deletedCount = deleteResult.rowCount || 0;
+
+    // Find all approved prospects with 0 contacts remaining
     const result = await db.query(`
       SELECT p.id, p.url, p.domain
       FROM prospects p
@@ -31,12 +46,13 @@ router.post('/retry-failed', async (req: Request, res: Response) => {
       queued++;
     }
 
-    logger.info(`Retry-failed: queued ${queued} prospects for contact finding`);
+    logger.info(`Retry-failed: deleted ${deletedCount} junk contacts, queued ${queued} prospects for contact finding`);
 
     res.json({
       success: true,
-      message: `Queued ${queued} prospects for retry`,
+      message: `Cleaned ${deletedCount} junk contacts, queued ${queued} prospects for retry`,
       queued,
+      junk_deleted: deletedCount,
     });
   } catch (error) {
     logger.error('Error in retry-failed:', error);

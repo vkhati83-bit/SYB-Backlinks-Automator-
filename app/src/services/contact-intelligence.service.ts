@@ -12,11 +12,35 @@
  */
 
 import logger from '../utils/logger.js';
-import { getCachedDomainSearch, cacheDomainSearch } from './contact-cache.service.js';
+import { getCachedDomainSearch, cacheDomainSearch, clearDomainCache } from './contact-cache.service.js';
 import { validateEmail } from './email-validator.service.js';
 import { scoreAndRankContacts, selectBestContacts, type ScoredContact } from './decision-maker.service.js';
 
 const HUNTER_API_KEY = process.env.HUNTER_API_KEY;
+
+// Junk domains to filter out of cached results
+const JUNK_DOMAINS = new Set([
+  'namecheap.com', 'godaddy.com', 'tucows.com', 'enom.com', 'networksolutions.com',
+  'register.com', 'name.com', 'dynadot.com', 'porkbun.com', 'hover.com',
+  'gandi.net', 'ionos.com', '1and1.com', 'ovh.com', 'ovhcloud.com',
+  'cloudflare.com', 'amazonaws.com', 'google.com', 'googledomains.com',
+  'squarespace.com', 'wix.com', 'wixpress.com', 'wordpress.com', 'shopify.com',
+  'bluehost.com', 'hostgator.com', 'siteground.com', 'dreamhost.com',
+  'a2hosting.com', 'inmotionhosting.com', 'wpengine.com',
+  'markmonitor.com', 'corporatedomains.com', 'cscdbs.com', 'namebright.com',
+  'sentry-next.wixpress.com',
+]);
+
+function isJunkEmail(email: string): boolean {
+  if (!email) return true;
+  const parts = email.split('@');
+  if (parts.length !== 2) return true;
+  const [local, domain] = parts;
+  if (local.toLowerCase() === 'abuse') return true;
+  if (local.toLowerCase() === 'noreply' || local.toLowerCase() === 'no-reply') return true;
+  if (JUNK_DOMAINS.has(domain.toLowerCase())) return true;
+  return false;
+}
 const APOLLO_API_KEY = process.env.APOLLO_API_KEY;
 const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY;
 const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX;
@@ -353,14 +377,21 @@ export async function findContactsForProspect(
   // Check cache first
   const cached = await getCachedDomainSearch(domain);
   if (cached) {
-    logger.info(`Using cached contacts for ${domain}`);
-    return {
-      contacts: cached.contacts,
-      total_found: cached.total_found,
-      sources_used: ['cache'],
-      total_cost_cents: 0,
-      cached: true,
-    };
+    // Filter out junk emails from old cache entries
+    const cleanContacts = cached.contacts.filter(c => !isJunkEmail(c.email));
+    if (cleanContacts.length > 0) {
+      logger.info(`Using cached contacts for ${domain} (${cleanContacts.length} clean of ${cached.contacts.length})`);
+      return {
+        contacts: cleanContacts,
+        total_found: cleanContacts.length,
+        sources_used: ['cache'],
+        total_cost_cents: 0,
+        cached: true,
+      };
+    }
+    // All cached contacts were junk — clear cache and re-search
+    logger.info(`Cache for ${domain} only had junk emails, clearing and re-searching`);
+    await clearDomainCache(domain);
   }
 
   const allContacts: any[] = [];
@@ -464,9 +495,10 @@ export async function findContactsForProspect(
     }
   }
 
-  // Cache results for 30 days
-  if (finalContacts.length > 0) {
-    await cacheDomainSearch(domain, finalContacts);
+  // Filter out junk before caching
+  const cacheableContacts = finalContacts.filter(c => !isJunkEmail(c.email));
+  if (cacheableContacts.length > 0) {
+    await cacheDomainSearch(domain, cacheableContacts);
   }
 
   logger.info(`Contact search complete for ${domain}: Found ${finalContacts.length} contacts, cost: $${(totalCost / 100).toFixed(2)}, sources: ${sourcesUsed.join(', ')}`);
