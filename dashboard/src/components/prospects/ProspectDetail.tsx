@@ -277,8 +277,11 @@ export default function ProspectDetail({
     if (!primaryContact || !generatedEmail) return;
 
     setModalState('sending');
+    setComposeError(null);
+
     try {
-      const res = await fetch(`${API_BASE}/emails/send`, {
+      // Step 1: Save email
+      const saveRes = await fetch(`${API_BASE}/emails/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -289,15 +292,67 @@ export default function ProspectDetail({
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setSentEmailId(data.id || null);
-        setModalState('sent');
-      } else {
-        const error = await res.json();
-        setComposeError(error.message || 'Failed to send email');
+      if (!saveRes.ok) {
+        const err = await saveRes.json();
+        setComposeError(err.message || 'Failed to save email');
         setModalState('ready');
+        return;
       }
+
+      const saveData = await saveRes.json();
+      const emailId: string = saveData.email_id;
+      setSentEmailId(emailId);
+
+      // Step 2: Approve (queues BullMQ for sending)
+      const approveRes = await fetch(`${API_BASE}/emails/${emailId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      if (!approveRes.ok) {
+        const err = await approveRes.json();
+        setComposeError(err.error || 'Failed to approve email');
+        setModalState('ready');
+        return;
+      }
+
+      // Step 3: Poll for sent status
+      const maxAttempts = 15; // 15 × 2s = 30s max
+      let attempts = 0;
+
+      const closeModal = () => {
+        setShowComposeModal(false);
+        setGeneratedEmail(null);
+        setModalState('idle');
+        setSentEmailId(null);
+      };
+
+      const poll = setInterval(async () => {
+        attempts++;
+        try {
+          const statusRes = await fetch(`${API_BASE}/emails/${emailId}`);
+          if (statusRes.ok) {
+            const emailData = await statusRes.json();
+            if (emailData.status === 'sent') {
+              clearInterval(poll);
+              setModalState('sent');
+              setTimeout(closeModal, 2000);
+              return;
+            }
+          }
+        } catch (_e) {
+          // ignore poll errors, keep trying
+        }
+
+        if (attempts >= maxAttempts) {
+          clearInterval(poll);
+          // Timed out — treat as success (BullMQ will deliver in background)
+          setModalState('sent');
+          setTimeout(closeModal, 2000);
+        }
+      }, 2000);
+
     } catch (error) {
       setComposeError('Failed to connect to server');
       setModalState('ready');
