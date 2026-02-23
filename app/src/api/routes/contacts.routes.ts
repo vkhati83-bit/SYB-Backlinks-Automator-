@@ -4,6 +4,47 @@ import logger from '../../utils/logger.js';
 
 const router = Router();
 
+// POST /api/v1/contacts/retry-failed - Retry contact finder for all prospects with 0 contacts
+router.post('/retry-failed', async (req: Request, res: Response) => {
+  try {
+    const { contactFinderQueue } = await import('../../config/queues.js');
+    const { db } = await import('../../db/index.js');
+
+    // Find all approved prospects with 0 contacts
+    const result = await db.query(`
+      SELECT p.id, p.url, p.domain
+      FROM prospects p
+      WHERE p.approval_status = 'approved'
+        AND p.status != 'email_sent'
+        AND (p.contact_count = 0 OR p.contact_count IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM contacts c WHERE c.prospect_id = p.id)
+    `);
+
+    const prospects = result.rows;
+    let queued = 0;
+
+    for (const prospect of prospects) {
+      await contactFinderQueue.add('find-contact', {
+        prospectId: prospect.id,
+        url: prospect.url,
+        domain: prospect.domain,
+      });
+      queued++;
+    }
+
+    logger.info(`Retry-failed: queued ${queued} prospects for contact finding`);
+
+    res.json({
+      success: true,
+      message: `Queued ${queued} prospects for retry`,
+      queued,
+    });
+  } catch (error) {
+    logger.error('Error in retry-failed:', error);
+    res.status(500).json({ error: 'Failed to queue retries' });
+  }
+});
+
 // GET /api/v1/contacts/:prospectId - Get contacts for a prospect
 router.get('/:prospectId', async (req: Request, res: Response) => {
   try {
