@@ -153,7 +153,7 @@ async function generateBrokenLinkEmail(input: EmailGenerationInput): Promise<Gen
     : '';
 
   const pitch = input.suggestedArticleUrl
-    ? `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our specific article "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}) as a replacement — it covers the same topic the broken link was about. After mentioning what the article covers, include a reference to our research database using the exact placeholder [RESEARCH_URL] (e.g. "backed by our EMF research database at [RESEARCH_URL]"). Be helpful, not opportunistic.`
+    ? `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our specific article as a replacement. The article title MUST be followed immediately by its URL in parentheses, exactly like this: "${input.suggestedArticleTitle}" (${input.suggestedArticleUrl}). Describe what the article covers. Optionally, you may also reference our research database using the placeholder [RESEARCH_URL] — but this is not required. Be helpful, not opportunistic.`
     : `We noticed a broken link on their page${input.brokenUrl ? ` (${input.brokenUrl})` : ''}. Politely point this out and suggest our research database at [RESEARCH_URL] as a relevant replacement resource. Be helpful, not opportunistic.`;
 
   const templateSection = input.emailTemplate
@@ -175,7 +175,7 @@ CONTACT:
 PITCH:
 ${pitch}
 
-IMPORTANT: The placeholder [RESEARCH_URL] MUST appear in the body exactly as written — it will be replaced automatically with the real URL. Do NOT write any real URL in its place.
+NOTE: If you include [RESEARCH_URL] in the body, it will be replaced automatically with the real URL. Do NOT write any real shieldyourbody.com URL — use the placeholder or omit it.
 ${templateSection}
 Generate a JSON response with "subject" and "body" fields.`;
 
