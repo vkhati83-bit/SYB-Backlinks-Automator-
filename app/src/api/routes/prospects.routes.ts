@@ -615,12 +615,12 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     // Validate UUID format to prevent DB errors from route mismatches
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(req.params.id)) {
+    if (!uuidRegex.test(req.params.id as string)) {
       res.status(400).json({ error: 'Invalid prospect ID format' });
       return;
     }
 
-    const prospect = await prospectRepository.findById(req.params.id as string);
+    const prospect = await prospectRepository.findById(req.params.id as string as string);
     if (!prospect) {
       res.status(404).json({ error: 'Prospect not found' });
       return;
@@ -629,13 +629,13 @@ router.get('/:id', async (req: Request, res: Response) => {
     // Get contacts for this prospect
     const contacts = await db.query(
       'SELECT * FROM contacts WHERE prospect_id = $1 ORDER BY confidence_score DESC, confidence_tier ASC',
-      [req.params.id]
+      [req.params.id as string]
     );
 
     // Get emails sent to this prospect
     const emails = await db.query(
       'SELECT * FROM emails WHERE prospect_id = $1 ORDER BY created_at DESC',
-      [req.params.id]
+      [req.params.id as string]
     );
 
     // For broken link opportunities, parse and structure the data clearly
@@ -714,7 +714,7 @@ router.patch('/:id/outcome', async (req: Request, res: Response) => {
       return;
     }
 
-    const prospect = await prospectRepository.setOutcomeTag(req.params.id, outcome_tag);
+    const prospect = await prospectRepository.setOutcomeTag(req.params.id as string, outcome_tag);
     if (!prospect) {
       res.status(404).json({ error: 'Prospect not found' });
       return;
@@ -724,7 +724,7 @@ router.patch('/:id/outcome', async (req: Request, res: Response) => {
     await auditRepository.log({
       action: 'outcome_tagged',
       entity_type: 'prospect',
-      entity_id: req.params.id,
+      entity_id: req.params.id as string,
       details: { outcome_tag },
     });
 
@@ -746,7 +746,7 @@ router.patch('/:id/approval', async (req: Request, res: Response) => {
       return;
     }
 
-    const prospect = await prospectRepository.updateApprovalStatus(req.params.id, approval_status);
+    const prospect = await prospectRepository.updateApprovalStatus(req.params.id as string, approval_status);
     if (!prospect) {
       res.status(404).json({ error: 'Prospect not found' });
       return;
@@ -757,7 +757,7 @@ router.patch('/:id/approval', async (req: Request, res: Response) => {
     await auditRepository.log({
       action,
       entity_type: 'prospect',
-      entity_id: req.params.id,
+      entity_id: req.params.id as string,
       details: { approval_status },
     });
 
@@ -772,7 +772,7 @@ router.patch('/:id/approval', async (req: Request, res: Response) => {
 router.patch('/:id/niche', async (req: Request, res: Response) => {
   try {
     const { niche } = req.body;
-    const prospect = await prospectRepository.setNiche(req.params.id, niche || null);
+    const prospect = await prospectRepository.setNiche(req.params.id as string, niche || null);
 
     if (!prospect) {
       res.status(404).json({ error: 'Prospect not found' });
@@ -789,7 +789,7 @@ router.patch('/:id/niche', async (req: Request, res: Response) => {
 // POST /api/v1/prospects/:id/block - Block a prospect
 router.post('/:id/block', async (req: Request, res: Response) => {
   try {
-    const prospect = await prospectRepository.findById(req.params.id as string);
+    const prospect = await prospectRepository.findById(req.params.id as string as string);
     if (!prospect) {
       res.status(404).json({ error: 'Prospect not found' });
       return;
@@ -805,7 +805,7 @@ router.post('/:id/block', async (req: Request, res: Response) => {
     `, [prospect.domain, reason || 'Manually blocked']);
 
     // Update prospect status
-    await prospectRepository.updateStatus(req.params.id as string, 'rejected');
+    await prospectRepository.updateStatus(req.params.id as string as string, 'rejected');
 
     res.json({ success: true, message: `Blocked ${prospect.domain}` });
   } catch (error) {
@@ -823,9 +823,9 @@ router.delete('/:id', async (req: Request, res: Response) => {
   try {
     const { reason } = req.body;
     const prospect = await prospectRepository.softDelete(
-      req.params.id,
+      req.params.id as string,
       reason,
-      req.user?.id // If auth is implemented
+      (req as any).user?.id // If auth is implemented
     );
 
     if (!prospect) {
@@ -837,7 +837,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     await auditRepository.log({
       action: 'prospect_soft_deleted',
       entity_type: 'prospect',
-      entity_id: req.params.id,
+      entity_id: req.params.id as string,
       details: { reason, domain: prospect.domain },
     });
 
@@ -866,7 +866,7 @@ router.post('/bulk-delete', async (req: Request, res: Response) => {
       return;
     }
 
-    const count = await prospectRepository.bulkSoftDelete(ids, reason, req.user?.id);
+    const count = await prospectRepository.bulkSoftDelete(ids, reason, (req as any).user?.id);
 
     // Log the action
     await auditRepository.log({
@@ -889,7 +889,7 @@ router.post('/bulk-delete', async (req: Request, res: Response) => {
 // POST /api/v1/prospects/:id/restore - Restore from trash
 router.post('/:id/restore', async (req: Request, res: Response) => {
   try {
-    const prospect = await prospectRepository.restore(req.params.id);
+    const prospect = await prospectRepository.restore(req.params.id as string);
 
     if (!prospect) {
       res.status(404).json({ error: 'Prospect not found in trash' });
@@ -900,7 +900,7 @@ router.post('/:id/restore', async (req: Request, res: Response) => {
     await auditRepository.log({
       action: 'prospect_restored',
       entity_type: 'prospect',
-      entity_id: req.params.id,
+      entity_id: req.params.id as string,
       details: { domain: prospect.domain },
     });
 
@@ -949,13 +949,13 @@ router.post('/bulk-restore', async (req: Request, res: Response) => {
 router.delete('/:id/permanent', async (req: Request, res: Response) => {
   try {
     // Get prospect first to log details
-    const prospect = await prospectRepository.findById(req.params.id, true); // Include deleted
+    const prospect = await prospectRepository.findById(req.params.id as string, true); // Include deleted
     if (!prospect) {
       res.status(404).json({ error: 'Prospect not found' });
       return;
     }
 
-    const success = await prospectRepository.permanentDelete(req.params.id);
+    const success = await prospectRepository.permanentDelete(req.params.id as string);
 
     if (!success) {
       res.status(404).json({ error: 'Prospect not found' });
@@ -966,7 +966,7 @@ router.delete('/:id/permanent', async (req: Request, res: Response) => {
     await auditRepository.log({
       action: 'prospect_permanent_delete',
       entity_type: 'prospect',
-      entity_id: req.params.id,
+      entity_id: req.params.id as string,
       details: {
         domain: prospect.domain,
         url: prospect.url,

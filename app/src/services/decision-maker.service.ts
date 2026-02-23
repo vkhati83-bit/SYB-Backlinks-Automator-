@@ -18,7 +18,7 @@ interface ContactCandidate {
   source_metadata?: Record<string, any>;
 }
 
-interface ScoredContact extends ContactCandidate {
+export interface ScoredContact extends ContactCandidate {
   confidence_score: number;
   score_breakdown: {
     base_score: number;

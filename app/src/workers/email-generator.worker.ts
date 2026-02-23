@@ -99,6 +99,7 @@ export function createEmailGeneratorWorker() {
 }
 
 // Run if executed directly
+// @ts-ignore - tsx handles import.meta at runtime
 if (import.meta.url === `file://${process.argv[1]}`) {
   createEmailGeneratorWorker();
 }

@@ -47,4 +47,5 @@ export async function testRedisConnection(): Promise<boolean> {
   }
 }
 
+export { redis as redisConnection };
 export default redis;

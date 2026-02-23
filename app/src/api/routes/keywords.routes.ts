@@ -66,7 +66,7 @@ router.post('/', async (req: Request, res: Response) => {
 // GET /api/v1/keywords/:id - Get single keyword
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const keyword = await keywordRepository.findById(req.params.id);
+    const keyword = await keywordRepository.findById(req.params.id as string);
     if (!keyword) {
       res.status(404).json({ error: 'Keyword not found' });
       return;
@@ -83,7 +83,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
   try {
     const { keyword, niche, is_active } = req.body;
 
-    const updated = await keywordRepository.update(req.params.id, {
+    const updated = await keywordRepository.update(req.params.id as string, {
       keyword,
       niche,
       is_active,
@@ -104,19 +104,19 @@ router.patch('/:id', async (req: Request, res: Response) => {
 // DELETE /api/v1/keywords/:id - Delete keyword
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const keyword = await keywordRepository.findById(req.params.id);
+    const keyword = await keywordRepository.findById(req.params.id as string);
     if (!keyword) {
       res.status(404).json({ error: 'Keyword not found' });
       return;
     }
 
-    await keywordRepository.deleteById(req.params.id);
+    await keywordRepository.deleteById(req.params.id as string);
 
     // Log the action
     await auditRepository.log({
       action: 'keyword_removed',
       entity_type: 'keyword',
-      entity_id: req.params.id,
+      entity_id: req.params.id as string,
       details: { keyword: keyword.keyword },
     });
 
@@ -130,13 +130,13 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // POST /api/v1/keywords/:id/toggle - Toggle keyword active status
 router.post('/:id/toggle', async (req: Request, res: Response) => {
   try {
-    const keyword = await keywordRepository.findById(req.params.id);
+    const keyword = await keywordRepository.findById(req.params.id as string);
     if (!keyword) {
       res.status(404).json({ error: 'Keyword not found' });
       return;
     }
 
-    const updated = await keywordRepository.setActive(req.params.id, !keyword.is_active);
+    const updated = await keywordRepository.setActive(req.params.id as string, !keyword.is_active);
     res.json(updated);
   } catch (error) {
     logger.error('Error toggling keyword:', error);
@@ -197,7 +197,7 @@ router.post('/niches', async (req: Request, res: Response) => {
 // GET /api/v1/keywords/niches/:id - Get single niche
 router.get('/niches/:id', async (req: Request, res: Response) => {
   try {
-    const niche = await nicheRepository.findById(req.params.id);
+    const niche = await nicheRepository.findById(req.params.id as string);
     if (!niche) {
       res.status(404).json({ error: 'Niche not found' });
       return;
@@ -214,7 +214,7 @@ router.patch('/niches/:id', async (req: Request, res: Response) => {
   try {
     const { name, description, keywords, is_active } = req.body;
 
-    const updated = await nicheRepository.update(req.params.id, {
+    const updated = await nicheRepository.update(req.params.id as string, {
       name,
       description,
       keywords,
@@ -236,7 +236,7 @@ router.patch('/niches/:id', async (req: Request, res: Response) => {
 // DELETE /api/v1/keywords/niches/:id - Delete niche
 router.delete('/niches/:id', async (req: Request, res: Response) => {
   try {
-    const deleted = await nicheRepository.deleteById(req.params.id);
+    const deleted = await nicheRepository.deleteById(req.params.id as string);
     if (!deleted) {
       res.status(404).json({ error: 'Niche not found' });
       return;

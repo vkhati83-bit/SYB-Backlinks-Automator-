@@ -31,7 +31,7 @@ interface ContactSearchResult {
     role?: string;
     linkedin_url?: string;
     confidence_score: number;
-    confidence_tier: string;
+    confidence_tier?: string;
     source: string;
     source_metadata?: Record<string, any>;
     verification_status?: string;

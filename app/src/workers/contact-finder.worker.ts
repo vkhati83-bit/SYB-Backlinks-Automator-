@@ -280,7 +280,7 @@ async function processContactFinderJob(job: Job<ContactFinderJobData>): Promise<
           role: contact.title || contact.role,
           title: contact.title,
           confidence_tier: contact.confidence_tier as ContactConfidenceTier,
-          source: contact.source,
+          source: contact.source as 'scraped' | 'pattern' | 'linkedin' | 'manual',
           linkedin_url: contact.linkedin_url,
           verified: contact.verification_status === 'valid',
           confidence_score: contact.confidence_score,
@@ -386,6 +386,7 @@ export function createContactFinderWorker() {
 }
 
 // Run if executed directly
+// @ts-ignore - tsx handles import.meta at runtime
 if (import.meta.url === `file://${process.argv[1]}`) {
   createContactFinderWorker();
 }

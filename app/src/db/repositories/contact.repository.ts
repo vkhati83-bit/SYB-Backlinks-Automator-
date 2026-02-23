@@ -6,11 +6,17 @@ export interface CreateContactInput {
   email: string;
   name?: string;
   role?: string;
+  title?: string;
   confidence_tier?: ContactConfidenceTier;
+  confidence_score?: number;
   source: 'scraped' | 'pattern' | 'linkedin' | 'manual';
   linkedin_url?: string;
   twitter_handle?: string;
   is_primary?: boolean;
+  verified?: boolean;
+  verification_status?: string;
+  source_metadata?: Record<string, unknown>;
+  api_cost_cents?: number;
 }
 
 export interface UpdateContactInput {

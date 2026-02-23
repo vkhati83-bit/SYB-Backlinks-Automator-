@@ -48,7 +48,7 @@ export class SettingsRepository {
       daily_send_limit: settings.daily_send_limit as number || 20,
       followup_1_delay_days: settings.followup_1_delay_days as number || 4,
       followup_2_delay_days: settings.followup_2_delay_days as number || 8,
-      followup_mode: settings.followup_mode as string || 'manual',
+      followup_mode: (settings.followup_mode as Settings['followup_mode']) || 'manual',
       min_domain_authority: settings.min_domain_authority as number || 20,
       max_spam_score: settings.max_spam_score as number || 30,
       min_monthly_traffic: settings.min_monthly_traffic as number || 1000,

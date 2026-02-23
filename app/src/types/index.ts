@@ -32,6 +32,8 @@ export interface Prospect {
   spam_score: number | null;
   monthly_traffic: number | null;
   quality_score: number | null;
+  filter_score: number | null;
+  filter_status: string | null;
   opportunity_type: 'research_citation' | 'broken_link' | 'guest_post';
   status: ProspectStatus;
   campaign_id: string | null;
@@ -42,6 +44,15 @@ export interface Prospect {
   suggested_article_url: string | null;
   suggested_article_title: string | null;
   match_reason: string | null;
+  broken_url: string | null;
+  outbound_link_context: string | null;
+  broken_url_status_code: number | null;
+  broken_url_verified_at: Date | null;
+  page_authority: number | null;
+  is_dofollow: boolean | null;
+  first_seen: Date | null;
+  last_seen: Date | null;
+  deleted_at: Date | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -95,6 +106,8 @@ export interface Email {
   ab_variant: string | null;
   subject: string;
   body: string;
+  edited_subject: string | null;
+  edited_body: string | null;
   status: EmailStatus;
   reviewed_by: string | null;
   reviewed_at: Date | null;
@@ -103,6 +116,8 @@ export interface Email {
   sent_at: Date | null;
   opened_at: Date | null;
   clicked_at: Date | null;
+  open_count: number;
+  click_count: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -247,11 +262,18 @@ export type AuditAction =
   | 'prospect_approved'
   | 'prospect_rejected'
   | 'prospect_bulk_action'
+  | 'prospect_bulk_review'
+  | 'prospect_soft_deleted'
+  | 'prospect_bulk_delete'
+  | 'prospect_restored'
+  | 'prospect_bulk_restore'
+  | 'prospect_permanent_delete'
   | 'outcome_tagged'
   | 'contact_found'
   | 'contact_set_primary'
   | 'contact_queued'
   | 'contact_removed_from_queue'
+  | 'contact_selected_for_outreach'
   | 'email_generated'
   | 'email_approved'
   | 'email_rejected'
@@ -266,6 +288,7 @@ export type AuditAction =
   | 'blocklist_added'
   | 'blocklist_removed'
   | 'settings_changed'
+  | 'factory_reset'
   | 'campaign_created'
   | 'campaign_updated'
   | 'campaign_activated'
