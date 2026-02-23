@@ -183,6 +183,19 @@ export default function SettingsPage() {
                 placeholder="Your Name or Team"
               />
             </div>
+          </div>
+          <div className="mt-4">
+            <label className="label">Email Signature</label>
+            <textarea
+              rows={4}
+              value={settings.email_signature || ''}
+              onChange={(e) => updateSetting('email_signature', e.target.value)}
+              className="w-full border border-gray-300 rounded-md p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder={`Best regards,\nR Blank\nShieldYourBody.com`}
+            />
+            <p className="text-xs text-gray-500 mt-1">Appended to every outreach email. Use plain text or simple line breaks.</p>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4">
             <div>
               <label className="label">Claude Model</label>
               <select
