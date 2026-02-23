@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ContactQueue from './ContactQueue';
 import OutcomeTagSelector from './OutcomeTagSelector';
 import type { Prospect } from '../../lib/types';
@@ -49,6 +49,8 @@ export default function ProspectDetail({
   const [modalState, setModalState] = useState<ModalState>('idle');
   const [generatedEmail, setGeneratedEmail] = useState<{ subject: string; body: string } | null>(null);
   const [sentEmailId, setSentEmailId] = useState<string | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoCloseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [editedSubject, setEditedSubject] = useState('');
   const [editedBody, setEditedBody] = useState('');
   const [composeError, setComposeError] = useState<string | null>(null);
@@ -57,6 +59,13 @@ export default function ProspectDetail({
   useEffect(() => {
     fetchData();
   }, [prospect.id]);
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (autoCloseTimeoutRef.current) clearTimeout(autoCloseTimeoutRef.current);
+    };
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -322,22 +331,24 @@ export default function ProspectDetail({
       let attempts = 0;
 
       const closeModal = () => {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+        if (autoCloseTimeoutRef.current) clearTimeout(autoCloseTimeoutRef.current);
         setShowComposeModal(false);
         setGeneratedEmail(null);
         setModalState('idle');
         setSentEmailId(null);
       };
 
-      const poll = setInterval(async () => {
+      pollIntervalRef.current = setInterval(async () => {
         attempts++;
         try {
           const statusRes = await fetch(`${API_BASE}/emails/${emailId}`);
           if (statusRes.ok) {
             const emailData = await statusRes.json();
             if (emailData.status === 'sent') {
-              clearInterval(poll);
+              clearInterval(pollIntervalRef.current!);
               setModalState('sent');
-              setTimeout(closeModal, 2000);
+              autoCloseTimeoutRef.current = setTimeout(closeModal, 2000);
               return;
             }
           }
@@ -346,10 +357,10 @@ export default function ProspectDetail({
         }
 
         if (attempts >= maxAttempts) {
-          clearInterval(poll);
+          clearInterval(pollIntervalRef.current!);
           // Timed out — treat as success (BullMQ will deliver in background)
           setModalState('sent');
-          setTimeout(closeModal, 2000);
+          autoCloseTimeoutRef.current = setTimeout(closeModal, 2000);
         }
       }, 2000);
 
