@@ -40,6 +40,16 @@ You click "Find Emails" on a prospect. It goes through 9 steps, one by one. As s
 - If the email looks like `jane.smith@`, it turns that into "Jane Smith" automatically
 - Generic prefixes like `info@` or `editor@` don't get a fake name attached
 
+## Best upgrade option: Snov.io
+
+If you want to seriously boost the hit rate, [Snov.io](https://snov.io/pricing) is the move.
+
+- **Free trial:** 50 credits/month (renewable forever)
+- **Starter:** $29/month for 1,000 credits
+- **Pro S:** $74/month for 5,000 credits
+
+What makes it good: domain search (give it a domain, get back emails), 50M+ company database, bulk search, and a clean REST API. One credit = one email lookup. Not integrated yet but easy to add as Step 8 (before Apollo/Hunter).
+
 ## Files
 
 | File | What it does |
