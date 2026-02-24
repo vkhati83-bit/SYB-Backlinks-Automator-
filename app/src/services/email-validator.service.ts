@@ -3,7 +3,7 @@
  *
  * Validates email deliverability using:
  * 1. DNS MX record checks (free)
- * 2. Hunter.io Email Verifier (paid, optional)
+ * 2. Snov.io Email Verifier (paid, optional)
  * 3. Pattern validation
  */
 
@@ -11,11 +11,11 @@ import dns from 'dns';
 import { promisify } from 'util';
 import logger from '../utils/logger.js';
 import { getCachedEmailVerification, cacheEmailVerification } from './contact-cache.service.js';
+import { isSnovConfigured, verifyEmail as snovVerifyEmail } from './snov.service.js';
 
 const resolveMx = promisify(dns.resolveMx);
 
-const HUNTER_API_KEY = process.env.HUNTER_API_KEY;
-const HUNTER_VERIFY_COST_CENTS = 1; // ~$0.01 per verification
+const SNOV_VERIFY_COST_CENTS = 1; // 1 credit ≈ $0.01 per verification
 
 interface EmailValidationResult {
   email: string;
@@ -29,7 +29,7 @@ interface EmailValidationResult {
   disposable?: boolean;
   role_email?: boolean;
   api_cost_cents: number;
-  method: 'dns_only' | 'hunter_api' | 'pattern_only';
+  method: 'dns_only' | 'snov_api' | 'pattern_only';
 }
 
 /**
@@ -78,54 +78,33 @@ async function checkMXRecords(email: string): Promise<boolean> {
 }
 
 /**
- * Validate email using Hunter.io API (paid)
+ * Validate email using Snov.io API (paid)
  */
-async function validateWithHunter(email: string): Promise<{
+async function validateWithSnov(email: string): Promise<{
   status: 'valid' | 'invalid' | 'risky' | 'unknown';
   score: number;
-  smtp_check?: boolean;
   free_email?: boolean;
   disposable?: boolean;
 }> {
-  if (!HUNTER_API_KEY) {
-    throw new Error('Hunter.io API key not configured');
+  if (!isSnovConfigured()) {
+    throw new Error('Snov.io API not configured');
   }
 
-  try {
-    const response = await fetch(
-      `https://api.hunter.io/v2/email-verifier?email=${encodeURIComponent(email)}&api_key=${HUNTER_API_KEY}`
-    );
+  const result = await snovVerifyEmail(email);
 
-    if (!response.ok) {
-      throw new Error(`Hunter API error: ${response.status}`);
-    }
+  // Convert Snov status to a score
+  let score = 50;
+  if (result.status === 'valid') score = 95;
+  else if (result.status === 'risky') score = 50;
+  else if (result.status === 'invalid') score = 0;
+  else score = 30; // unknown
 
-    const data = await response.json() as any;
-
-    if (data.data) {
-      const { status, score, smtp_check, mx_records, free, disposable } = data.data;
-
-      // Map Hunter status to our status
-      let mappedStatus: 'valid' | 'invalid' | 'risky' | 'unknown' = 'unknown';
-      if (status === 'valid') mappedStatus = 'valid';
-      else if (status === 'invalid') mappedStatus = 'invalid';
-      else if (status === 'risky' || status === 'accept_all') mappedStatus = 'risky';
-      else mappedStatus = 'unknown';
-
-      return {
-        status: mappedStatus,
-        score: score || 0,
-        smtp_check: smtp_check === true,
-        free_email: free === true,
-        disposable: disposable === true,
-      };
-    }
-
-    throw new Error('Invalid response from Hunter API');
-  } catch (error: any) {
-    logger.error('Hunter email verification failed:', error);
-    throw error;
-  }
+  return {
+    status: result.status,
+    score,
+    free_email: result.isWebmail,
+    disposable: result.isDisposable,
+  };
 }
 
 /**
@@ -133,7 +112,7 @@ async function validateWithHunter(email: string): Promise<{
  */
 export async function validateEmail(
   email: string,
-  useHunterAPI: boolean = false
+  useSnovAPI: boolean = false
 ): Promise<EmailValidationResult> {
   // Check cache first
   const cached = await getCachedEmailVerification(email);
@@ -187,30 +166,28 @@ export async function validateEmail(
     return result;
   }
 
-  // If Hunter.io is enabled and available, use it for detailed validation
-  if (useHunterAPI && HUNTER_API_KEY) {
+  // If Snov.io is enabled and available, use it for detailed validation
+  if (useSnovAPI && isSnovConfigured()) {
     try {
-      const hunterResult = await validateWithHunter(email);
+      const snovResult = await validateWithSnov(email);
 
       const result: EmailValidationResult = {
         email,
-        status: hunterResult.status,
-        score: hunterResult.score,
-        deliverable: hunterResult.status === 'valid',
+        status: snovResult.status,
+        score: snovResult.score,
+        deliverable: snovResult.status === 'valid',
         mx_records_exist: true,
-        smtp_check: hunterResult.smtp_check,
-        free_email: hunterResult.free_email,
-        disposable: hunterResult.disposable,
+        free_email: snovResult.free_email,
+        disposable: snovResult.disposable,
         role_email: isRole,
-        api_cost_cents: HUNTER_VERIFY_COST_CENTS,
-        method: 'hunter_api',
+        api_cost_cents: SNOV_VERIFY_COST_CENTS,
+        method: 'snov_api',
       };
 
       await cacheEmailVerification(email, {
         status: result.status,
         score: result.score,
         metadata: {
-          smtp_check: result.smtp_check,
           free_email: result.free_email,
           disposable: result.disposable,
           role_email: result.role_email,
@@ -219,7 +196,7 @@ export async function validateEmail(
 
       return result;
     } catch (error) {
-      logger.warn('Hunter API failed, falling back to DNS only:', error);
+      logger.warn('Snov.io API failed, falling back to DNS only:', error);
       // Fall through to DNS-only result below
     }
   }
@@ -265,13 +242,13 @@ export async function validateEmail(
  */
 export async function validateEmailsBatch(
   emails: string[],
-  useHunterAPI: boolean = false
+  useSnovAPI: boolean = false
 ): Promise<EmailValidationResult[]> {
   const results: EmailValidationResult[] = [];
 
   for (const email of emails) {
     try {
-      const result = await validateEmail(email, useHunterAPI);
+      const result = await validateEmail(email, useSnovAPI);
       results.push(result);
 
       // Rate limit to avoid overwhelming APIs

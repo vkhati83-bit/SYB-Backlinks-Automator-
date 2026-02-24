@@ -92,8 +92,8 @@ function calculateTitleBonus(title?: string, role?: string): number {
 function calculateSourceBonus(source: string): number {
   switch (source.toLowerCase()) {
     case 'linkedin':
-    case 'hunter_domain_search':
-    case 'hunter_email_finder':
+    case 'snov_domain_search':
+    case 'snov_email_finder':
       return 20; // API-sourced with structured data
 
     case 'scraped':

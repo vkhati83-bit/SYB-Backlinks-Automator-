@@ -36,6 +36,10 @@ const envSchema = z.object({
   FOLLOWUP_1_DELAY_DAYS: z.string().default('4').transform(Number),
   FOLLOWUP_2_DELAY_DAYS: z.string().default('8').transform(Number),
 
+  // Snov.io (paid contact finder + email verifier)
+  SNOV_CLIENT_ID: z.string().optional(),
+  SNOV_CLIENT_SECRET: z.string().optional(),
+
   // Safety
   SAFETY_MODE: z.enum(['test', 'live']).default('test'),
 });
