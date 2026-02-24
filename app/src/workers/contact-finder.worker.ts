@@ -61,11 +61,33 @@ function isValidEmail(email: string): boolean {
   // Basic validation
   if (!email || email.length > 254) return false;
 
+  // Must not contain URL-encoded chars, spaces, or quotes
+  if (/%[0-9A-Fa-f]{2}/.test(email)) return false;
+  if (/[\s"'<>]/.test(email)) return false;
+
   const parts = email.split('@');
   if (parts.length !== 2) return false;
 
   const [local, domain] = parts;
   if (!local || !domain || local.length > 64) return false;
+
+  // Domain must have a valid TLD (2-20 chars) and no extra junk after it
+  if (!/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,20}$/.test(domain)) return false;
+
+  // Reject image filenames, asset hashes, and other non-email patterns
+  // Image/file extensions in local part or domain
+  if (/\.(png|jpg|jpeg|gif|svg|webp|ico|css|js|pdf|mp4|mp3)$/i.test(email)) return false;
+  if (/\.(png|jpg|jpeg|gif|svg|webp|ico)$/i.test(local)) return false;
+
+  // Reject UUIDs and long hex hashes (Sentry DSNs, tracking IDs)
+  if (/[0-9a-f]{32,}/i.test(local)) return false;
+  if (/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(local)) return false;
+
+  // Reject Sentry DSNs and similar service domains
+  if (/\.sentry\.io$/i.test(domain) || /\.ingest\./i.test(domain)) return false;
+
+  // Reject DMARC aggregate report addresses
+  if (local.toLowerCase().startsWith('_dldmarc') || local.toLowerCase().startsWith('dmarc')) return false;
 
   // Check for disposable domains
   if (DISPOSABLE_DOMAINS.has(domain.toLowerCase())) return false;
@@ -77,6 +99,9 @@ function isValidEmail(email: string): boolean {
   if (email.includes('example.com') || email.includes('test.com')) return false;
   if (email.includes('noreply') || email.includes('no-reply')) return false;
   if (local.toLowerCase() === 'abuse') return false;
+
+  // Reject local parts that look like CSS selectors, asset paths, or encoded junk
+  if (/[@#$%^&*()\[\]{}|\\]/.test(local.replace(/[._%+-]/g, ''))) return false;
 
   return true;
 }

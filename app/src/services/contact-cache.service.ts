@@ -252,6 +252,23 @@ export async function getCacheStats(): Promise<{
   }
 }
 
+/**
+ * Clear ALL contact cache entries (domain searches + email verifications + name lookups)
+ */
+export async function clearAllContactCache(): Promise<number> {
+  try {
+    const allKeys = await redis.keys(`${CACHE_PREFIX}*`);
+    if (allKeys.length > 0) {
+      await redis.del(...allKeys);
+      logger.info(`Cleared ALL ${allKeys.length} contact cache entries`);
+    }
+    return allKeys.length;
+  } catch (error) {
+    logger.error('Error clearing all contact cache:', error);
+    return 0;
+  }
+}
+
 export default {
   cacheDomainSearch,
   getCachedDomainSearch,
@@ -260,5 +277,6 @@ export default {
   cacheNameDomainLookup,
   getCachedNameDomainLookup,
   clearDomainCache,
+  clearAllContactCache,
   getCacheStats,
 };

@@ -60,6 +60,18 @@ router.post('/retry-failed', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/v1/contacts/clear-cache - Clear all contact search cache (forces fresh API lookups)
+router.post('/clear-cache', async (req: Request, res: Response) => {
+  try {
+    const { clearAllContactCache } = await import('../../services/contact-cache.service.js');
+    const cleared = await clearAllContactCache();
+    res.json({ success: true, message: `Cleared ${cleared} cache entries`, cleared });
+  } catch (error) {
+    logger.error('Error clearing contact cache:', error);
+    res.status(500).json({ error: 'Failed to clear cache' });
+  }
+});
+
 // GET /api/v1/contacts/:prospectId - Get contacts for a prospect
 router.get('/:prospectId', async (req: Request, res: Response) => {
   try {
