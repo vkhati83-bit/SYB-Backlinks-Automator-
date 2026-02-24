@@ -1008,7 +1008,7 @@ async function processContactFinderJob(job: Job<ContactFinderJobData>): Promise<
           role: contact.title || contact.role,
           title: contact.title,
           confidence_tier: contact.confidence_tier as ContactConfidenceTier,
-          source: contact.source as 'scraped' | 'pattern' | 'linkedin' | 'manual',
+          source: contact.source as 'scraped' | 'pattern' | 'linkedin' | 'manual' | 'snov_domain_search' | 'snov_email_finder',
           linkedin_url: contact.linkedin_url,
           verified: contact.verification_status === 'valid',
           confidence_score: contact.confidence_score,
@@ -1043,7 +1043,7 @@ async function processContactFinderJob(job: Job<ContactFinderJobData>): Promise<
 
         logger.info(`✅ Saved contact: ${contact.email} (${contact.confidence_tier}, score: ${contact.confidence_score})`);
       } catch (error) {
-        logger.debug(`Failed to save contact: ${contact.email}`, error);
+        logger.error(`Failed to save contact: ${contact.email}`, error);
       }
     }
   } else {

@@ -72,7 +72,7 @@ export interface Contact {
   name: string | null;
   role: string | null;
   confidence_tier: ContactConfidenceTier;
-  source: 'scraped' | 'pattern' | 'linkedin' | 'manual';
+  source: 'scraped' | 'pattern' | 'linkedin' | 'manual' | 'snov_domain_search' | 'snov_email_finder';
   verified: boolean;
   is_primary: boolean;
   queue_position: number | null;

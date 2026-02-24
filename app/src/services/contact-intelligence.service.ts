@@ -296,7 +296,7 @@ export async function findContactsForProspect(
           role: contact.role,
           linkedin_url: contact.linkedin_url,
           confidence_score: contact.confidence_score,
-          confidence_tier: contact.tier,
+          confidence_tier: contact.tier === 'A+' ? 'A' : contact.tier,
           source: contact.source,
           source_metadata: contact.source_metadata,
           verification_status: validation.status,
@@ -305,7 +305,7 @@ export async function findContactsForProspect(
         logger.error(`Email validation failed for ${contact.email}:`, error);
         finalContacts.push({
           ...contact,
-          confidence_tier: contact.tier,
+          confidence_tier: contact.tier === 'A+' ? 'A' : contact.tier,
         });
       }
     }

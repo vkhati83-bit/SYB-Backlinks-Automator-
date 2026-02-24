@@ -9,7 +9,7 @@ export interface CreateContactInput {
   title?: string;
   confidence_tier?: ContactConfidenceTier;
   confidence_score?: number;
-  source: 'scraped' | 'pattern' | 'linkedin' | 'manual';
+  source: 'scraped' | 'pattern' | 'linkedin' | 'manual' | 'snov_domain_search' | 'snov_email_finder';
   linkedin_url?: string;
   twitter_handle?: string;
   is_primary?: boolean;
