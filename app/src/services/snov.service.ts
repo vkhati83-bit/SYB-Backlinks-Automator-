@@ -144,7 +144,8 @@ export async function getDomainEmailCount(domain: string): Promise<number> {
 }
 
 /**
- * Domain Search — find all known emails at a domain
+ * Domain Email Search — find all known emails at a domain
+ * Uses /v2/domain-search/domain-emails (returns actual emails)
  * Cost: 1 credit per unique domain search
  */
 export async function domainSearch(domain: string): Promise<{
@@ -160,19 +161,21 @@ export async function domainSearch(domain: string): Promise<{
   cost_credits: number;
 }> {
   try {
-    // Start the async task
-    const startResult = await snovRequest('POST', '/v2/domain-search/start', { domain });
-    if (!startResult?.task_hash) {
+    // Start the async domain-emails task (NOT /domain-search which returns company info)
+    const startResult = await snovRequest('POST', '/v2/domain-search/domain-emails/start', { domain });
+    const taskHash = startResult?.meta?.task_hash || startResult?.task_hash;
+    if (!taskHash) {
+      logger.debug(`Snov.io domain-emails: no task_hash returned for ${domain}`);
       return { contacts: [], cost_credits: 0 };
     }
 
     // Poll for results
-    const result = await pollForResult(`/v2/domain-search/result/${startResult.task_hash}`);
-    if (!result?.data) {
+    const result = await pollForResult(`/v2/domain-search/domain-emails/result/${taskHash}`);
+    if (!result?.data || !Array.isArray(result.data)) {
       return { contacts: [], cost_credits: 1 };
     }
 
-    const contacts = (result.data || [])
+    const contacts = result.data
       .filter((item: any) => item.email)
       .map((item: any) => ({
         email: item.email,
@@ -184,7 +187,7 @@ export async function domainSearch(domain: string): Promise<{
         status: item.smtp_status || undefined,
       }));
 
-    logger.info(`Snov.io domain search found ${contacts.length} contacts for ${domain}`);
+    logger.info(`Snov.io domain search found ${contacts.length} emails for ${domain}`);
     return { contacts, cost_credits: 1 };
   } catch (error) {
     logger.error(`Snov.io domain search failed for ${domain}:`, error);
@@ -210,12 +213,13 @@ export async function findEmailByName(
       items: [{ first_name: firstName, last_name: lastName, domain }],
     });
 
-    if (!startResult?.task_hash) {
+    const taskHash = startResult?.meta?.task_hash || startResult?.task_hash;
+    if (!taskHash) {
       return { cost_credits: 0 };
     }
 
     const result = await pollForResult(
-      `/v2/emails-by-domain-by-name/result?task_hash=${startResult.task_hash}`
+      `/v2/emails-by-domain-by-name/result?task_hash=${taskHash}`
     );
 
     if (!result?.data || !Array.isArray(result.data) || result.data.length === 0) {
@@ -263,12 +267,13 @@ export async function verifyEmail(email: string): Promise<{
       emails: [email],
     });
 
-    if (!startResult?.task_hash) {
+    const taskHash = startResult?.meta?.task_hash || startResult?.task_hash;
+    if (!taskHash) {
       return fallback;
     }
 
     const result = await pollForResult(
-      `/v2/email-verification/result?task_hash=${startResult.task_hash}`
+      `/v2/email-verification/result?task_hash=${taskHash}`
     );
 
     if (!result?.data || !Array.isArray(result.data) || result.data.length === 0) {
