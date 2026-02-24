@@ -25,11 +25,11 @@ router.post('/retry-failed', async (req: Request, res: Response) => {
     `);
     const deletedCount = deleteResult.rowCount || 0;
 
-    // Find all approved prospects with 0 contacts remaining
+    // Find all non-rejected prospects with 0 contacts remaining
     const result = await db.query(`
       SELECT p.id, p.url, p.domain
       FROM prospects p
-      WHERE p.approval_status = 'approved'
+      WHERE p.approval_status != 'rejected'
         AND p.status != 'email_sent'
         AND NOT EXISTS (SELECT 1 FROM contacts c WHERE c.prospect_id = p.id)
     `);

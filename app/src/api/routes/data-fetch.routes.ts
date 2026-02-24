@@ -369,14 +369,12 @@ router.post('/research-citations', async (req: Request, res: Response) => {
         if (result.rows.length > 0) {
           const prospectId = result.rows[0].id;
 
-          // Only queue auto-approved and needs-review for contact finding
-          if (prospect.filterStatus === 'auto_approved' || prospect.filterStatus === 'needs_review') {
-            queueJobs.push({
-              prospectId,
-              url: prospect.url,
-              domain: prospect.domain,
-            });
-          }
+          // Queue contact finding for ALL new prospects (scraping is free, Snov.io is cheap)
+          queueJobs.push({
+            prospectId,
+            url: prospect.url,
+            domain: prospect.domain,
+          });
 
           inserted++;
         }
@@ -734,14 +732,12 @@ ${articleMatch ? `\nSuggested replacement: ${articleMatch.article.title}\nMatch 
         if (result.rows.length > 0) {
           const prospectId = result.rows[0].id;
 
-          // Only queue auto-approved and needs-review for contact finding
-          if (link.filterStatus === 'auto_approved' || link.filterStatus === 'needs_review') {
-            queueJobs.push({
-              prospectId,
-              url: link.referringPageUrl,
-              domain: link.referringDomain,
-            });
-          }
+          // Queue contact finding for ALL new prospects (scraping is free, Snov.io is cheap)
+          queueJobs.push({
+            prospectId,
+            url: link.referringPageUrl,
+            domain: link.referringDomain,
+          });
 
           inserted++;
         }
@@ -1140,14 +1136,12 @@ router.post('/backlinks-to-url', async (req: Request, res: Response) => {
         if (result.rows.length > 0) {
           const prospectId = result.rows[0].id;
 
-          // Only queue auto-approved and needs-review for contact finding
-          if (link.filterStatus === 'auto_approved' || link.filterStatus === 'needs_review') {
-            queueJobs.push({
-              prospectId,
-              url: link.referringPageUrl,
-              domain: link.referringDomain,
-            });
-          }
+          // Queue contact finding for ALL new prospects (scraping is free, Snov.io is cheap)
+          queueJobs.push({
+            prospectId,
+            url: link.referringPageUrl,
+            domain: link.referringDomain,
+          });
 
           inserted++;
         }
