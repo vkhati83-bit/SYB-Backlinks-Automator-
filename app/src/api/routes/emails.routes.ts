@@ -201,6 +201,52 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/v1/emails/sent - List sent emails with link check status
+// NOTE: Must be defined BEFORE /:id route so Express doesn't match "sent" as an ID
+router.get('/sent', async (req: Request, res: Response) => {
+  try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = (page - 1) * limit;
+
+    const result = await db.query(`
+      SELECT
+        e.id,
+        e.subject,
+        e.sent_at,
+        e.status,
+        c.email as contact_email,
+        c.name as contact_name,
+        p.domain,
+        p.url as prospect_url,
+        p.opportunity_type,
+        p.research_link_found,
+        p.research_link_last_checked_at
+      FROM emails e
+      JOIN prospects p ON e.prospect_id = p.id
+      LEFT JOIN contacts c ON e.contact_id = c.id
+      WHERE e.status = 'sent'
+        AND e.sent_at IS NOT NULL
+      ORDER BY e.sent_at DESC
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+
+    const countResult = await db.query(
+      `SELECT COUNT(*) as total FROM emails e WHERE e.status = 'sent' AND e.sent_at IS NOT NULL`
+    );
+
+    res.json({
+      emails: result.rows,
+      total: parseInt(countResult.rows[0].total),
+      page,
+      limit,
+    });
+  } catch (error) {
+    logger.error('Error fetching sent emails:', error);
+    res.status(500).json({ error: 'Failed to fetch sent emails' });
+  }
+});
+
 // GET /api/v1/emails/:id - Get single email
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -312,50 +358,6 @@ router.post('/:id/regenerate', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/v1/emails/sent - List sent emails with link check status
-router.get('/sent', async (req: Request, res: Response) => {
-  try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = (page - 1) * limit;
-
-    const result = await db.query(`
-      SELECT
-        e.id,
-        e.subject,
-        e.sent_at,
-        e.status,
-        c.email as contact_email,
-        c.name as contact_name,
-        p.domain,
-        p.url as prospect_url,
-        p.opportunity_type,
-        p.research_link_found,
-        p.research_link_last_checked_at
-      FROM emails e
-      JOIN prospects p ON e.prospect_id = p.id
-      LEFT JOIN contacts c ON e.contact_id = c.id
-      WHERE e.status = 'sent'
-        AND e.sent_at IS NOT NULL
-      ORDER BY e.sent_at DESC
-      LIMIT $1 OFFSET $2
-    `, [limit, offset]);
-
-    const countResult = await db.query(
-      `SELECT COUNT(*) as total FROM emails e WHERE e.status = 'sent' AND e.sent_at IS NOT NULL`
-    );
-
-    res.json({
-      emails: result.rows,
-      total: parseInt(countResult.rows[0].total),
-      page,
-      limit,
-    });
-  } catch (error) {
-    logger.error('Error fetching sent emails:', error);
-    res.status(500).json({ error: 'Failed to fetch sent emails' });
-  }
-});
 
 // POST /api/v1/emails/:id/check-link - Check if prospect page has a backlink to SYB research
 router.post('/:id/check-link', async (req: Request, res: Response) => {
