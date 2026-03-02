@@ -83,9 +83,10 @@ export default function Sidebar() {
     // Fetch trash count and safety mode
     const fetchSidebarData = async () => {
       try {
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
         const [statsRes, settingsRes] = await Promise.all([
-          fetch('/api/v1/prospects/stats'),
-          fetch('/api/v1/settings'),
+          fetch(`${API_BASE}/prospects/stats`),
+          fetch(`${API_BASE}/settings`),
         ]);
         if (statsRes.ok) {
           const data = await statsRes.json();
