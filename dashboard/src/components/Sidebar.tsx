@@ -75,25 +75,35 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
   const [trashCount, setTrashCount] = useState(0);
+  const [safetyMode, setSafetyMode] = useState<string>('test');
 
   useEffect(() => {
     setMounted(true);
 
-    // Fetch trash count
-    const fetchTrashCount = async () => {
+    // Fetch trash count and safety mode
+    const fetchSidebarData = async () => {
       try {
-        const response = await fetch('/api/v1/prospects/stats');
-        const data = await response.json();
-        setTrashCount(data.trash || 0);
+        const [statsRes, settingsRes] = await Promise.all([
+          fetch('/api/v1/prospects/stats'),
+          fetch('/api/v1/settings'),
+        ]);
+        if (statsRes.ok) {
+          const data = await statsRes.json();
+          setTrashCount(data.trash || 0);
+        }
+        if (settingsRes.ok) {
+          const data = await settingsRes.json();
+          setSafetyMode(data.settings?.safety_mode || 'test');
+        }
       } catch (error) {
-        console.error('Failed to fetch trash count:', error);
+        console.error('Failed to fetch sidebar data:', error);
       }
     };
 
-    fetchTrashCount();
+    fetchSidebarData();
 
     // Refresh every 30 seconds
-    const interval = setInterval(fetchTrashCount, 30000);
+    const interval = setInterval(fetchSidebarData, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -145,8 +155,14 @@ export default function Sidebar() {
       </nav>
       <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-          <span className="text-gray-400 text-sm">Safety Mode Active</span>
+          <div className={`w-2 h-2 rounded-full animate-pulse ${
+            safetyMode === 'live' ? 'bg-red-500' : 'bg-green-500'
+          }`}></div>
+          <span className={`text-sm ${
+            safetyMode === 'live' ? 'text-red-400' : 'text-gray-400'
+          }`}>
+            {safetyMode === 'live' ? 'LIVE MODE' : 'Test Mode'}
+          </span>
         </div>
       </div>
     </aside>

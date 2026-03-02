@@ -54,13 +54,18 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
-// Safety check - in test mode, all emails go to test recipient
-export const getEmailRecipient = (intendedRecipient: string): string => {
-  if (env.SAFETY_MODE === 'test') {
+// Safety check - reads safety_mode from database (not env var) so dashboard toggle works
+export async function getEmailRecipient(intendedRecipient: string): Promise<string> {
+  // Dynamic import to avoid circular dependency
+  const { settingsRepository } = await import('../db/repositories/index.js');
+  const safetyMode = await settingsRepository.get<string>('safety_mode');
+
+  // Default to 'test' if not set in DB — fail safe
+  if (safetyMode !== 'live') {
     console.log(`🛡️ SAFETY MODE: Redirecting email from ${intendedRecipient} to ${env.TEST_EMAIL_RECIPIENT}`);
     return env.TEST_EMAIL_RECIPIENT;
   }
   return intendedRecipient;
-};
+}
 
 export default env;

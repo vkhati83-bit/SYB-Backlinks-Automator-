@@ -2,17 +2,19 @@ import { Router } from 'express';
 import { db, seoDb, testConnections } from '../../db/index.js';
 import { testRedisConnection } from '../../config/redis.js';
 import { getQueueStats } from '../../config/queues.js';
+import { settingsRepository } from '../../db/repositories/index.js';
 import env from '../../config/env.js';
 
 const router = Router();
 
 // Basic health check
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
+  const safetyMode = await settingsRepository.get<string>('safety_mode') || 'test';
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     environment: env.NODE_ENV,
-    safetyMode: env.SAFETY_MODE,
+    safetyMode,
   });
 });
 

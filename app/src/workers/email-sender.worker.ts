@@ -83,7 +83,7 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
 
   logger.info(`Email sent successfully: ${emailId}`, {
     resendId: result.resendId,
-    recipient: env.SAFETY_MODE === 'test' ? env.TEST_EMAIL_RECIPIENT : contact.email,
+    recipient: contact.email,
   });
 
   return {

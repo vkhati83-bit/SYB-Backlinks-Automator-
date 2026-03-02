@@ -49,12 +49,14 @@ app.get('/', (req, res) => {
 app.use('/api/v1', apiRoutes);
 
 // Legacy health check (for backwards compatibility)
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+  const { settingsRepository } = await import('./db/repositories/index.js');
+  const safetyMode = await settingsRepository.get<string>('safety_mode') || 'test';
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     environment: env.NODE_ENV,
-    safetyMode: env.SAFETY_MODE,
+    safetyMode,
   });
 });
 

@@ -36,8 +36,8 @@ function textToHtml(text: string): string {
 
 // Send email via Resend
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
-  // Apply safety mode redirect
-  const actualRecipient = getEmailRecipient(input.to);
+  // Apply safety mode redirect (now reads from DB)
+  const actualRecipient = await getEmailRecipient(input.to);
 
   try {
     logger.info(`Sending email to: ${actualRecipient}`, {
