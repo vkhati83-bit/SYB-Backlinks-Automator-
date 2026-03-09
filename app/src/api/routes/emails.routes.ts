@@ -201,6 +201,175 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/v1/emails/bulk-generate - Queue email generation for multiple prospects
+// NOTE: Must be defined BEFORE /:id route so Express doesn't match these as IDs
+router.post('/bulk-generate', async (req: Request, res: Response) => {
+  try {
+    const { prospect_ids } = req.body;
+
+    if (!Array.isArray(prospect_ids) || prospect_ids.length === 0) {
+      res.status(400).json({ error: 'prospect_ids array is required' });
+      return;
+    }
+
+    const { emailGeneratorQueue } = await import('../../config/queues.js');
+    const queued: string[] = [];
+    const skipped: { id: string; domain: string; reason: string }[] = [];
+
+    for (const prospectId of prospect_ids) {
+      // Get prospect
+      const prospectResult = await db.query(
+        'SELECT id, domain, opportunity_type FROM prospects WHERE id = $1',
+        [prospectId]
+      );
+      if (prospectResult.rows.length === 0) {
+        skipped.push({ id: prospectId, domain: '?', reason: 'Prospect not found' });
+        continue;
+      }
+      const prospect = prospectResult.rows[0];
+
+      // Check if email already exists (pending_review or approved or sent)
+      const existingEmail = await db.query(
+        `SELECT id FROM emails WHERE prospect_id = $1 AND status IN ('pending_review', 'approved', 'sent')`,
+        [prospectId]
+      );
+      if (existingEmail.rows.length > 0) {
+        skipped.push({ id: prospectId, domain: prospect.domain, reason: 'Email already exists' });
+        continue;
+      }
+
+      // Find primary contact (or first contact)
+      const contactResult = await db.query(
+        `SELECT id FROM contacts WHERE prospect_id = $1 ORDER BY is_primary DESC, confidence_tier ASC, created_at ASC LIMIT 1`,
+        [prospectId]
+      );
+      if (contactResult.rows.length === 0) {
+        skipped.push({ id: prospectId, domain: prospect.domain, reason: 'No contacts found' });
+        continue;
+      }
+
+      const contactId = contactResult.rows[0].id;
+
+      // Queue email generation
+      await emailGeneratorQueue.add('generate-email', {
+        prospectId,
+        contactId,
+      });
+
+      queued.push(prospectId);
+    }
+
+    res.json({
+      queued: queued.length,
+      skipped: skipped.length,
+      queued_prospect_ids: queued,
+      skipped_details: skipped,
+    });
+  } catch (error) {
+    logger.error('Error bulk generating emails:', error);
+    res.status(500).json({ error: 'Failed to queue bulk email generation' });
+  }
+});
+
+// GET /api/v1/emails/by-prospects - Get emails for specific prospect IDs
+router.get('/by-prospects', async (req: Request, res: Response) => {
+  try {
+    const ids = req.query.ids as string;
+    if (!ids) {
+      res.status(400).json({ error: 'ids query parameter is required (comma-separated)' });
+      return;
+    }
+
+    const prospectIds = ids.split(',').filter(Boolean);
+    if (prospectIds.length === 0) {
+      res.json({ emails: [] });
+      return;
+    }
+
+    // Build parameterized query
+    const placeholders = prospectIds.map((_, i) => `$${i + 1}`).join(',');
+    const result = await db.query(`
+      SELECT
+        e.id,
+        e.prospect_id,
+        e.contact_id,
+        e.subject,
+        e.body,
+        e.edited_subject,
+        e.edited_body,
+        e.status,
+        e.created_at,
+        e.sent_at,
+        p.domain,
+        p.url as prospect_url,
+        p.domain_authority,
+        p.opportunity_type,
+        c.email as contact_email,
+        c.name as contact_name
+      FROM emails e
+      JOIN prospects p ON e.prospect_id = p.id
+      JOIN contacts c ON e.contact_id = c.id
+      WHERE e.prospect_id IN (${placeholders})
+        AND e.status IN ('pending_review', 'approved', 'sent')
+      ORDER BY e.created_at DESC
+    `, prospectIds);
+
+    res.json({ emails: result.rows });
+  } catch (error) {
+    logger.error('Error fetching emails by prospects:', error);
+    res.status(500).json({ error: 'Failed to fetch emails' });
+  }
+});
+
+// POST /api/v1/emails/bulk-send - Approve and queue multiple emails for sending
+router.post('/bulk-send', async (req: Request, res: Response) => {
+  try {
+    const { email_ids } = req.body;
+
+    if (!Array.isArray(email_ids) || email_ids.length === 0) {
+      res.status(400).json({ error: 'email_ids array is required' });
+      return;
+    }
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const emailId of email_ids) {
+      try {
+        const email = await emailRepository.findById(emailId);
+        if (!email) {
+          failed++;
+          continue;
+        }
+
+        // Only approve emails that are pending_review
+        if (email.status !== 'pending_review') {
+          failed++;
+          continue;
+        }
+
+        await emailRepository.updateStatus(emailId, 'approved');
+        await emailSenderQueue.add('send-email', { emailId });
+        await auditRepository.logEmailApproved(emailId);
+        sent++;
+      } catch (err) {
+        logger.error(`Failed to approve email ${emailId}:`, err);
+        failed++;
+      }
+    }
+
+    res.json({
+      success: true,
+      sent,
+      failed,
+      message: `${sent} emails queued for sending${failed > 0 ? `, ${failed} failed` : ''}`,
+    });
+  } catch (error) {
+    logger.error('Error bulk sending emails:', error);
+    res.status(500).json({ error: 'Failed to bulk send emails' });
+  }
+});
+
 // GET /api/v1/emails/sent - List sent emails with link check status
 // NOTE: Must be defined BEFORE /:id route so Express doesn't match "sent" as an ID
 router.get('/sent', async (req: Request, res: Response) => {
