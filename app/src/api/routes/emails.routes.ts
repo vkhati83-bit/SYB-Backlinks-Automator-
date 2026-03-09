@@ -201,8 +201,32 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/v1/emails/bulk-generate - Queue email generation for multiple prospects
+// GET /api/v1/emails/queue-status - Lightweight status check for the send queue
 // NOTE: Must be defined BEFORE /:id route so Express doesn't match these as IDs
+router.get('/queue-status', async (_req: Request, res: Response) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending_review') as pending_review,
+        COUNT(*) FILTER (WHERE status = 'approved') as approved,
+        COUNT(*) FILTER (WHERE status = 'sent') as sent,
+        COUNT(*) FILTER (WHERE status = 'sent' AND sent_at > NOW() - INTERVAL '24 hours') as sent_today
+      FROM emails
+    `);
+    const row = result.rows[0];
+    res.json({
+      pending_review: parseInt(row.pending_review),
+      approved: parseInt(row.approved),
+      sent: parseInt(row.sent),
+      sent_today: parseInt(row.sent_today),
+    });
+  } catch (error) {
+    logger.error('Error fetching queue status:', error);
+    res.status(500).json({ error: 'Failed to fetch queue status' });
+  }
+});
+
+// POST /api/v1/emails/bulk-generate - Queue email generation for multiple prospects
 router.post('/bulk-generate', async (req: Request, res: Response) => {
   try {
     const { prospect_ids } = req.body;

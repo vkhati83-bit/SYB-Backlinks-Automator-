@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import SendQueueStatus from './SendQueueStatus';
 
 const navItems = [
   { href: '/', icon: 'home', label: 'Dashboard' },
@@ -154,16 +155,19 @@ export default function Sidebar() {
           );
         })}
       </nav>
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
-        <div className="flex items-center gap-2">
-          <div className={`w-2 h-2 rounded-full animate-pulse ${
-            safetyMode === 'live' ? 'bg-red-500' : 'bg-green-500'
-          }`}></div>
-          <span className={`text-sm ${
-            safetyMode === 'live' ? 'text-red-400' : 'text-gray-400'
-          }`}>
-            {safetyMode === 'live' ? 'LIVE MODE' : 'Test Mode'}
-          </span>
+      <div className="absolute bottom-0 left-0 right-0">
+        <SendQueueStatus />
+        <div className="p-4 border-t border-gray-800">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full animate-pulse ${
+              safetyMode === 'live' ? 'bg-red-500' : 'bg-green-500'
+            }`}></div>
+            <span className={`text-sm ${
+              safetyMode === 'live' ? 'text-red-400' : 'text-gray-400'
+            }`}>
+              {safetyMode === 'live' ? 'LIVE MODE' : 'Test Mode'}
+            </span>
+          </div>
         </div>
       </div>
     </aside>
