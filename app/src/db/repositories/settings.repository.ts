@@ -88,34 +88,6 @@ export class SettingsRepository {
     }
   }
 
-  async getDailySendLimit(): Promise<number> {
-    const settings = await this.getAll();
-
-    if (!settings.warmup_enabled) {
-      return settings.daily_send_limit;
-    }
-
-    // Warmup schedule
-    const warmupLimits: Record<number, number> = {
-      1: 20,
-      2: 20,
-      3: 50,
-      4: 50,
-      5: 75,
-      6: 75,
-      7: 100,
-    };
-
-    const week = Math.min(settings.warmup_week, 7);
-    return warmupLimits[week] || settings.daily_send_limit;
-  }
-
-  async advanceWarmupWeek(): Promise<number> {
-    const current = await this.get<number>('warmup_week') || 1;
-    const next = Math.min(current + 1, 7);
-    await this.set('warmup_week', next);
-    return next;
-  }
 }
 
 export const settingsRepository = new SettingsRepository();

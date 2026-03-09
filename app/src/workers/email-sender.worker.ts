@@ -28,16 +28,6 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
     return { sent: false };
   }
 
-  // Check daily send limit
-  const sentToday = await emailRepository.countSentToday();
-  const dailyLimit = await settingsRepository.getDailySendLimit();
-
-  if (sentToday >= dailyLimit) {
-    logger.warn(`Daily send limit reached: ${sentToday}/${dailyLimit}`);
-    // Re-queue for later
-    throw new Error(`Daily send limit reached (${sentToday}/${dailyLimit}). Will retry later.`);
-  }
-
   // Get contact
   const contact = await contactRepository.findById(email.contact_id);
   if (!contact) {

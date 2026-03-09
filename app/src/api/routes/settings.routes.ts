@@ -56,14 +56,6 @@ router.put('/:key', async (req: Request, res: Response) => {
     // Validate certain settings
     const key = req.params.key;
 
-    if (key === 'daily_send_limit') {
-      const limit = parseInt(value);
-      if (isNaN(limit) || limit < 1 || limit > 500) {
-        res.status(400).json({ error: 'Daily send limit must be between 1 and 500' });
-        return;
-      }
-    }
-
     if (key === 'safety_mode' && !['test', 'live'].includes(value)) {
       res.status(400).json({ error: 'Safety mode must be "test" or "live"' });
       return;
