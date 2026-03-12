@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import Sidebar from '../components/Sidebar';
+import AuthLayout from '../components/AuthLayout';
 
 export const metadata: Metadata = {
   title: 'SYB Backlinks Dashboard',
@@ -15,12 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="bg-gray-50 min-h-screen" suppressHydrationWarning>
-        <div className="flex">
-          <Sidebar />
-          <main className="flex-1 ml-64 p-8">
-            {children}
-          </main>
-        </div>
+        <AuthLayout>{children}</AuthLayout>
       </body>
     </html>
   );

@@ -77,11 +77,18 @@ export default function Sidebar() {
   const [mounted, setMounted] = useState(false);
   const [trashCount, setTrashCount] = useState(0);
   const [safetyMode, setSafetyMode] = useState<string>('test');
+  const [userEmail, setUserEmail] = useState<string>('');
 
   useEffect(() => {
     setMounted(true);
 
     // Fetch trash count and safety mode
+    // Fetch current user
+    fetch('/api/auth/me')
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data?.user?.email) setUserEmail(data.user.email); })
+      .catch(() => {});
+
     const fetchSidebarData = async () => {
       try {
         const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
@@ -169,6 +176,22 @@ export default function Sidebar() {
             </span>
           </div>
         </div>
+        {userEmail && (
+          <div className="p-4 border-t border-gray-800">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500 truncate">{userEmail}</span>
+              <button
+                onClick={async () => {
+                  await fetch('/api/auth/logout', { method: 'POST' });
+                  window.location.href = '/login';
+                }}
+                className="text-xs text-gray-500 hover:text-white transition-colors"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );
