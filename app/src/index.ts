@@ -16,6 +16,8 @@ import { createFollowupWorker } from './workers/followup.worker.js';
 import { createLinkCheckerWorker } from './workers/link-checker.worker.js';
 import { createResponseClassifierWorker } from './workers/response-classifier.worker.js';
 import { startTrashCleanupScheduler } from './workers/trash-cleanup.worker.js';
+import { db } from './db/index.js';
+import { emailSenderQueue } from './config/queues.js';
 
 const app = express();
 
@@ -139,6 +141,21 @@ async function start() {
       startTrashCleanupScheduler();
     } catch (schedulerError) {
       logger.warn('Trash cleanup scheduler failed to start:', schedulerError);
+    }
+
+    // Recovery: re-queue any approved emails that lost their BullMQ jobs
+    try {
+      const approvedResult = await db.query(
+        "SELECT id FROM emails WHERE status = 'approved' AND sent_at IS NULL"
+      );
+      if (approvedResult.rows.length > 0) {
+        for (const row of approvedResult.rows) {
+          await emailSenderQueue.add('send-email', { emailId: row.id });
+        }
+        logger.info(`Recovery: re-queued ${approvedResult.rows.length} approved emails`);
+      }
+    } catch (recoveryError) {
+      logger.warn('Email recovery failed:', recoveryError);
     }
 
     // Start server (explicitly bind to 0.0.0.0 for Railway)
