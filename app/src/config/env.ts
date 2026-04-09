@@ -32,7 +32,7 @@ const envSchema = z.object({
   CLAUDE_MODEL: z.string().default('claude-sonnet-4-20250514'),
 
   // App Config
-  DAILY_SEND_LIMIT: z.string().default('20').transform(Number),
+  DAILY_SEND_LIMIT: z.string().default('9999').transform(Number),
   FOLLOWUP_1_DELAY_DAYS: z.string().default('4').transform(Number),
   FOLLOWUP_2_DELAY_DAYS: z.string().default('8').transform(Number),
 

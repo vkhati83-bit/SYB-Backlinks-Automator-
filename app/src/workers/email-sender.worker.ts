@@ -86,11 +86,7 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
 export function createEmailSenderWorker() {
   const worker = new Worker(QUEUE_NAMES.EMAIL_SENDER, processEmailSenderJob, {
     connection: redis,
-    concurrency: 2, // Limit concurrent sends
-    limiter: {
-      max: 10, // Max 10 emails per
-      duration: 60000, // per minute
-    },
+    concurrency: 5,
   });
 
   worker.on('completed', (job, result) => {

@@ -293,7 +293,7 @@ CREATE TABLE settings (
 INSERT INTO settings (key, value, description) VALUES
     ('sender_name', '"SYB Research Team"', 'Name shown in outreach emails'),
     ('sender_email', '"outreach@shieldyourbody.com"', 'Email address for outreach'),
-    ('daily_send_limit', '20', 'Maximum emails to send per day'),
+    ('daily_send_limit', '9999', 'Maximum emails to send per day'),
     ('followup_1_delay_days', '4', 'Days to wait before first follow-up'),
     ('followup_2_delay_days', '8', 'Days to wait before second follow-up'),
     ('followup_mode', '"manual"', 'Follow-up mode: manual, smart_auto, full_auto'),

@@ -119,11 +119,7 @@ async function processFollowupJob(job: Job<FollowupJobData>): Promise<{ sent: bo
 export function createFollowupWorker() {
   const worker = new Worker(QUEUE_NAMES.FOLLOWUP, processFollowupJob, {
     connection: redis,
-    concurrency: 2,
-    limiter: {
-      max: 10,
-      duration: 60000, // 10 per minute
-    },
+    concurrency: 5,
   });
 
   worker.on('completed', (job, result) => {
