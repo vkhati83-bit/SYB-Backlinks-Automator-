@@ -61,6 +61,8 @@ export class SettingsRepository {
       email_template_broken_link: settings.email_template_broken_link as string || '',
       email_template_followup_1: settings.email_template_followup_1 as string || '',
       email_template_followup_2: settings.email_template_followup_2 as string || '',
+      autopilot_enabled: settings.autopilot_enabled as boolean ?? false,
+      autopilot_run_hour: settings.autopilot_run_hour as number ?? 8,
     };
   }
 

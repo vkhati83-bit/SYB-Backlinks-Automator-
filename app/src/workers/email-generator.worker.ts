@@ -1,6 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import redis from '../config/redis.js';
-import { QUEUE_NAMES } from '../config/queues.js';
+import { QUEUE_NAMES, emailSenderQueue } from '../config/queues.js';
 import { generateOutreachEmail } from '../services/claude.service.js';
 import { findResearchCategory } from '../services/research-matcher.service.js';
 import { emailRepository, prospectRepository, contactRepository, auditRepository, settingsRepository } from '../db/repositories/index.js';
@@ -11,11 +11,12 @@ export interface EmailGeneratorJobData {
   contactId: string;
   campaignId?: string;
   templateId?: string;
+  autopilot?: boolean;
 }
 
 // Worker processor
 async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promise<{ emailId: string; subject: string }> {
-  const { prospectId, contactId, campaignId, templateId } = job.data;
+  const { prospectId, contactId, campaignId, templateId, autopilot } = job.data;
 
   logger.info(`Generating email for prospect: ${prospectId}`, { jobId: job.id });
 
@@ -103,6 +104,13 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
     body: generated.body,
   });
 
+  // Auto-approve and queue for sending if autopilot is enabled
+  if (autopilot) {
+    await emailRepository.updateStatus(email.id, 'approved');
+    await emailSenderQueue.add('send-email', { emailId: email.id });
+    logger.info(`Autopilot: email ${email.id} auto-approved and queued for sending`);
+  }
+
   // Update prospect status
   await prospectRepository.updateStatus(prospectId, 'email_generated');
 
@@ -112,6 +120,7 @@ async function processEmailGeneratorJob(job: Job<EmailGeneratorJobData>): Promis
   logger.info(`Email generated successfully: ${email.id}`, {
     jobId: job.id,
     subject: generated.subject.substring(0, 50),
+    autopilot: autopilot ?? false,
   });
 
   return {

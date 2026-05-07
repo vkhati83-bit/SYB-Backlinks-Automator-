@@ -2,6 +2,7 @@ import { Worker, Job } from 'bullmq';
 import redis from '../config/redis.js';
 import { QUEUE_NAMES } from '../config/queues.js';
 import { sendEmail } from '../services/resend.service.js';
+import { Resend } from 'resend';
 import { emailRepository, contactRepository, sequenceRepository, settingsRepository, auditRepository, prospectRepository } from '../db/repositories/index.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
@@ -93,8 +94,51 @@ export function createEmailSenderWorker() {
     logger.info(`Email sender job ${job.id} completed:`, result);
   });
 
-  worker.on('failed', (job, error) => {
+  worker.on('failed', async (job, error) => {
     logger.error(`Email sender job ${job?.id} failed:`, error);
+
+    // Send failure notification
+    try {
+      const resend = new Resend(env.RESEND_API_KEY);
+      const emailId = job?.data?.emailId ?? 'unknown';
+
+      // Try to get contact email for context
+      let recipientInfo = 'unknown recipient';
+      try {
+        const { db } = await import('../db/index.js');
+        const result = await db.query<{ email: string; subject: string }>(
+          `SELECT c.email, e.subject
+           FROM emails e
+           JOIN contacts c ON c.id = e.contact_id
+           WHERE e.id = $1`,
+          [emailId]
+        );
+        if (result.rows[0]) {
+          recipientInfo = `${result.rows[0].email} — "${result.rows[0].subject}"`;
+        }
+      } catch (lookupErr) {
+        logger.debug('Failure notification: contact lookup failed', lookupErr);
+      }
+
+      await resend.emails.send({
+        from: 'SYB Backlinks <outreach@shieldyourbody.com>',
+        to: 'vicky@shieldyourbody.com',
+        subject: `[SYB Backlinks] Email send failed — ${recipientInfo}`,
+        text: [
+          `A backlinks outreach email failed to send.`,
+          ``,
+          `Email ID: ${emailId}`,
+          `Recipient: ${recipientInfo}`,
+          `Error: ${error.message}`,
+          `Job ID: ${job?.id ?? 'unknown'}`,
+          `Time: ${new Date().toISOString()}`,
+          ``,
+          `Check the dashboard for details.`,
+        ].join('\n'),
+      });
+    } catch (notifyError) {
+      logger.error('Failed to send failure notification:', notifyError);
+    }
   });
 
   logger.info('Email sender worker started');
