@@ -4,11 +4,15 @@ import { settingsRepository } from '../db/repositories/index.js';
 import { prospectingQueue, emailGeneratorQueue } from '../config/queues.js';
 import logger from '../utils/logger.js';
 
+// Guard against concurrent runs
+let isRunning = false;
+
 // Count emails sent today (UTC)
 async function countEmailsSentToday(): Promise<number> {
   const result = await db.query<{ count: string }>(
     `SELECT COUNT(*) as count FROM emails
-     WHERE sent_at >= CURRENT_DATE AND sent_at < CURRENT_DATE + INTERVAL '1 day'`
+     WHERE status IN ('approved', 'sent', 'delivered', 'opened', 'clicked', 'bounced', 'complained')
+       AND created_at >= CURRENT_DATE`
   );
   return parseInt(result.rows[0].count, 10);
 }
@@ -62,7 +66,8 @@ async function waitForProspects(needed: number, timeoutMs: number): Promise<Arra
       return ready;
     }
     logger.info(`Autopilot: waiting for prospects — have ${ready.length}, need ${needed}`);
-    await new Promise(resolve => setTimeout(resolve, pollInterval));
+    const remaining = deadline - Date.now();
+    await new Promise(resolve => setTimeout(resolve, Math.min(pollInterval, remaining)));
   }
 
   return getReadyProspects(); // Return whatever we have after timeout
@@ -70,6 +75,11 @@ async function waitForProspects(needed: number, timeoutMs: number): Promise<Arra
 
 // Main autopilot pipeline
 async function runAutopilot(): Promise<void> {
+  if (isRunning) {
+    logger.info('Autopilot: run already in progress, skipping');
+    return;
+  }
+  isRunning = true;
   logger.info('Autopilot: starting daily run');
 
   try {
@@ -128,6 +138,8 @@ async function runAutopilot(): Promise<void> {
     logger.info(`Autopilot: run complete — ${toProcess.length} emails queued, ${researchRounds} research round(s)`);
   } catch (error) {
     logger.error('Autopilot: run failed:', error);
+  } finally {
+    isRunning = false;
   }
 }
 

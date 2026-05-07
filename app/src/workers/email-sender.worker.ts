@@ -116,7 +116,9 @@ export function createEmailSenderWorker() {
         if (result.rows[0]) {
           recipientInfo = `${result.rows[0].email} — "${result.rows[0].subject}"`;
         }
-      } catch (_) {}
+      } catch (lookupErr) {
+        logger.debug('Failure notification: contact lookup failed', lookupErr);
+      }
 
       await resend.emails.send({
         from: 'SYB Backlinks <outreach@shieldyourbody.com>',
