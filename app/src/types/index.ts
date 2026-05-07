@@ -346,6 +346,8 @@ export interface Settings {
   email_template_broken_link?: string;
   email_template_followup_1?: string;
   email_template_followup_2?: string;
+  autopilot_enabled: boolean;
+  autopilot_run_hour: number;
 }
 
 // ============================================
