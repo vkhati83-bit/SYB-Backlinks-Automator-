@@ -245,6 +245,53 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Autopilot Settings */}
+        <div className="card">
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Autopilot</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            When enabled, researches prospects and sends up to 20 emails per day automatically — no manual review needed.
+          </p>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium text-gray-800">Enable Autopilot</div>
+                <div className="text-xs text-gray-500 mt-0.5">Runs daily at the configured hour (UTC). Disabled by default.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => updateSetting('autopilot_enabled', !settings.autopilot_enabled)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                  settings.autopilot_enabled ? 'bg-blue-600' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    settings.autopilot_enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </div>
+            <div className="max-w-xs">
+              <label className="label">Run Hour (UTC)</label>
+              <select
+                value={settings.autopilot_run_hour ?? 8}
+                onChange={(e) => updateSetting('autopilot_run_hour', parseInt(e.target.value))}
+                className="input"
+                disabled={!settings.autopilot_enabled}
+              >
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>
+                    {String(i).padStart(2, '0')}:00 UTC
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                08:00 UTC = 3:00 AM EST / 12:00 AM PST
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* API Connections - read-only status */}
         <div className="card">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">API Connections</h2>
