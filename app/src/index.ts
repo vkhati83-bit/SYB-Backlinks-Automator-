@@ -16,6 +16,7 @@ import { createFollowupWorker } from './workers/followup.worker.js';
 import { createLinkCheckerWorker } from './workers/link-checker.worker.js';
 import { createResponseClassifierWorker } from './workers/response-classifier.worker.js';
 import { startTrashCleanupScheduler } from './workers/trash-cleanup.worker.js';
+import { startAutopilotScheduler } from './workers/autopilot.worker.js';
 import { db } from './db/index.js';
 import { emailSenderQueue } from './config/queues.js';
 
@@ -141,6 +142,13 @@ async function start() {
       startTrashCleanupScheduler();
     } catch (schedulerError) {
       logger.warn('Trash cleanup scheduler failed to start:', schedulerError);
+    }
+
+    // Start autopilot scheduler (hourly tick, runs pipeline at configured UTC hour)
+    try {
+      await startAutopilotScheduler();
+    } catch (autopilotError) {
+      logger.warn('Autopilot scheduler failed to start:', autopilotError);
     }
 
     // Recovery: re-queue any approved emails that lost their BullMQ jobs
