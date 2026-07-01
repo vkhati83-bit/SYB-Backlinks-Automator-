@@ -226,6 +226,93 @@ router.get('/queue-status', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/v1/emails/wip - Work-in-progress snapshot: today's send budget, live queue, pipeline.
+// The daily numbers mirror the autopilot's own logic exactly (autopilot.worker.ts) so what you
+// see here is what the automation actually does. "Today" = UTC calendar day, because that is when
+// the autopilot's daily cap resets (midnight UTC = 5:30 AM IST). Must stay above the /:id route.
+router.get('/wip', async (_req: Request, res: Response) => {
+  try {
+    const settings = await settingsRepository.getAll();
+    const safetyMode = (await settingsRepository.get<string>('safety_mode')) || 'test';
+
+    // Hard ceiling is 20/day regardless of the configured limit (autopilot uses min(limit, 20)).
+    const dailyCap = Math.min(settings.daily_send_limit, 20);
+
+    // used_today mirrors autopilot.countEmailsSentToday(): rows CREATED today that reached
+    // approved-or-later status. That is what consumes the daily budget.
+    const emailRes = await db.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'pending_review') AS pending_review,
+        COUNT(*) FILTER (WHERE status = 'approved') AS approved,
+        COUNT(*) FILTER (WHERE status IN ('approved','sent','delivered','opened','clicked','bounced','complained')
+                          AND created_at >= CURRENT_DATE) AS used_today,
+        COUNT(*) FILTER (WHERE status IN ('sent','delivered','opened','clicked') AND sent_at >= CURRENT_DATE) AS delivered_today,
+        COUNT(*) FILTER (WHERE status IN ('sent','delivered','opened','clicked')) AS sent_all_time,
+        MAX(sent_at) AS last_sent_at
+      FROM emails
+    `);
+    const e = emailRes.rows[0];
+    const usedToday = parseInt(e.used_today, 10);
+    const remainingToday = Math.max(dailyCap - usedToday, 0);
+
+    // Prospects ready to email right now (mirrors autopilot.getReadyProspects()):
+    // contact found, not deleted, has a contact, and no active email yet.
+    const readyRes = await db.query(`
+      SELECT COUNT(*) AS ready
+      FROM prospects p
+      WHERE p.status = 'contact_found'
+        AND p.deleted_at IS NULL
+        AND EXISTS (SELECT 1 FROM contacts c WHERE c.prospect_id = p.id)
+        AND NOT EXISTS (
+          SELECT 1 FROM emails e
+          WHERE e.prospect_id = p.id AND e.status IN ('pending_review','approved','sent')
+        )
+    `);
+    const ready = parseInt(readyRes.rows[0].ready, 10);
+
+    // Prospect pipeline funnel (non-deleted).
+    const funnelRes = await db.query<{ status: string; count: string }>(`
+      SELECT status, COUNT(*) AS count FROM prospects WHERE deleted_at IS NULL GROUP BY status
+    `);
+    const pipeline: Record<string, number> = {};
+    for (const row of funnelRes.rows) pipeline[row.status] = parseInt(row.count, 10);
+
+    // Next autopilot run (UTC): scheduler fires at the top of settings.autopilot_run_hour.
+    const now = new Date();
+    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), settings.autopilot_run_hour, 0, 0));
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+
+    res.json({
+      today: {
+        daily_cap: dailyCap,
+        used_today: usedToday,
+        remaining_today: remainingToday,
+        delivered_today: parseInt(e.delivered_today, 10),
+      },
+      queue: {
+        pending_review: parseInt(e.pending_review, 10), // waiting for your approval
+        approved: parseInt(e.approved, 10),             // approved, queued to send
+        ready_prospects: ready,                         // have a contact, no email drafted yet
+      },
+      autopilot: {
+        enabled: settings.autopilot_enabled,
+        run_hour_utc: settings.autopilot_run_hour,
+        next_run_utc: next.toISOString(),
+      },
+      pipeline,
+      totals: {
+        sent_all_time: parseInt(e.sent_all_time, 10),
+        last_sent_at: e.last_sent_at,
+      },
+      safety_mode: safetyMode,
+      generated_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    logger.error('Error fetching WIP status:', error);
+    res.status(500).json({ error: 'Failed to fetch WIP status' });
+  }
+});
+
 // POST /api/v1/emails/bulk-generate - Queue email generation for multiple prospects
 router.post('/bulk-generate', async (req: Request, res: Response) => {
   try {
