@@ -3,6 +3,7 @@ import { db } from '../db/index.js';
 import { settingsRepository } from '../db/repositories/index.js';
 import { prospectingQueue, emailGeneratorQueue } from '../config/queues.js';
 import logger from '../utils/logger.js';
+import { healthcheck } from '../utils/healthcheck.js';
 
 // Guard against concurrent runs
 let isRunning = false;
@@ -81,12 +82,17 @@ async function runAutopilot(): Promise<void> {
   }
   isRunning = true;
   logger.info('Autopilot: starting daily run');
+  // Tell healthchecks.io a run started; grace window on that check must exceed the max
+  // runtime (~60 min of research waits) — set it to 90 min. See docs/HEALTHCHECKS.md.
+  await healthcheck.autopilotStart();
 
   try {
     const settings = await settingsRepository.getAll();
 
     if (!settings.autopilot_enabled) {
       logger.info('Autopilot: disabled, skipping');
+      // Disabled is an intentional, healthy idle state — not a failure.
+      await healthcheck.autopilotSuccess('autopilot disabled');
       return;
     }
 
@@ -97,6 +103,8 @@ async function runAutopilot(): Promise<void> {
 
     if (needed <= 0) {
       logger.info(`Autopilot: daily cap reached (${sentToday}/${dailyCap}), skipping`);
+      // Cap reached means it's already done its job today — healthy.
+      await healthcheck.autopilotSuccess(`daily cap reached (${sentToday}/${dailyCap})`);
       return;
     }
 
@@ -136,8 +144,20 @@ async function runAutopilot(): Promise<void> {
     }
 
     logger.info(`Autopilot: run complete — ${toProcess.length} emails queued, ${researchRounds} research round(s)`);
+
+    // The stall signal: enabled and needed to send, but produced nothing after 2 research
+    // rounds. This is exactly the silent failure that ran unnoticed for 7 weeks — now it
+    // trips the alert the same day. Anything > 0 queued is a healthy run.
+    if (toProcess.length === 0) {
+      await healthcheck.autopilotFail(
+        `stall: needed ${needed} but queued 0 after ${researchRounds} research round(s) — prospecting found no new contacts`
+      );
+    } else {
+      await healthcheck.autopilotSuccess(`queued ${toProcess.length} email(s)`);
+    }
   } catch (error) {
     logger.error('Autopilot: run failed:', error);
+    await healthcheck.autopilotFail(`run threw: ${(error as Error).message}`);
   } finally {
     isRunning = false;
   }

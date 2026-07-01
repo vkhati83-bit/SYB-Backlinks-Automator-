@@ -42,6 +42,12 @@ const envSchema = z.object({
 
   // Safety
   SAFETY_MODE: z.enum(['test', 'live']).default('test'),
+
+  // healthchecks.io monitoring (optional — no-op if unset, e.g. local dev).
+  // AUTOPILOT: pinged each daily run (/start, then success or /fail on a silent 0-email stall).
+  // EMAILS: dead-man switch pinged on every real send; alerts if none flow within the check period.
+  HEALTHCHECKS_AUTOPILOT_URL: z.string().url().optional(),
+  HEALTHCHECKS_EMAILS_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

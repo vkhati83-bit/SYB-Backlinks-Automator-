@@ -6,6 +6,7 @@ import { Resend } from 'resend';
 import { emailRepository, contactRepository, sequenceRepository, settingsRepository, auditRepository, prospectRepository } from '../db/repositories/index.js';
 import env from '../config/env.js';
 import logger from '../utils/logger.js';
+import { healthcheck } from '../utils/healthcheck.js';
 
 export interface EmailSenderJobData {
   emailId: string;
@@ -76,6 +77,11 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
     resendId: result.resendId,
     recipient: contact.email,
   });
+
+  // Dead-man switch: proof that outreach is actually flowing. If no send lands within the
+  // healthchecks.io check period (3 days), it alerts — the direct signal Vicky asked for,
+  // whatever the upstream cause (stall, crash, exhausted inventory, paused).
+  await healthcheck.emailSent(`sent to ${contact.email}`);
 
   return {
     sent: true,
