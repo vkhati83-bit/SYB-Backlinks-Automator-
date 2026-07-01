@@ -119,7 +119,11 @@ async function processCompetitorDomains(
   minDomainRating: number,
   campaignId?: string
 ): Promise<number> {
-  const domains = await seoDataService.getCompetitorReferringDomains(minDomainRating, limit);
+  // Exclude domains we've already prospected so the SEO query pages past the same top
+  // rows into untapped inventory (root cause of the 2026-05→06 stall: no exclusion here).
+  const excludeDomains = await prospectRepository.getProspectedDomains();
+  const domains = await seoDataService.getCompetitorReferringDomains(minDomainRating, limit, excludeDomains);
+  logger.info(`Prospecting[competitor_domains]: excluding ${excludeDomains.length} already-prospected domains, fetched ${domains.length} candidates`);
   let created = 0;
 
   for (const ref of domains) {
@@ -176,7 +180,10 @@ async function processSerpResults(
   limit: number,
   campaignId?: string
 ): Promise<number> {
-  const results = await seoDataService.getEmfSerpResults(1, 30, limit);
+  // Exclude URLs we've already prospected (same stall fix as competitor_domains).
+  const excludeUrls = await prospectRepository.getProspectedUrls();
+  const results = await seoDataService.getEmfSerpResults(1, 30, limit, excludeUrls);
+  logger.info(`Prospecting[serp_results]: excluding ${excludeUrls.length} already-prospected urls, fetched ${results.length} candidates`);
   let created = 0;
 
   // Get domain metrics in bulk

@@ -63,11 +63,19 @@ export class SeoDataService {
     `, [limit]);
   }
 
-  // Get domains linking to competitors but not to us
+  // Get domains linking to competitors but not to us.
+  // excludeDomains: www-stripped domains already turned into prospects. The SEO DB is a
+  // separate read-only Postgres instance, so we cannot join or write a "contacted" flag
+  // back into it. Instead the caller pulls the already-prospected set from OUR db and
+  // passes it here so the query can page PAST the same top rows into fresh inventory.
+  // Without this, every daily run re-fetches the identical top 30 and yields 0 new prospects.
   async getCompetitorReferringDomains(
     minDomainRating = 20,
-    limit = 100
+    limit = 100,
+    excludeDomains: string[] = []
   ): Promise<CompetitorReferringDomain[]> {
+    // Mirror the worker's dedup key exactly: prospect.domain = referring_domain with a
+    // leading "www." stripped (see prospecting.worker.ts processCompetitorDomains).
     return seoQuery<CompetitorReferringDomain>(`
       SELECT id, competitor_domain, referring_domain, domain_rating,
              total_links, we_have_link, is_ignored
@@ -75,16 +83,21 @@ export class SeoDataService {
       WHERE we_have_link = FALSE
         AND is_ignored = FALSE
         AND domain_rating >= $1
+        AND regexp_replace(referring_domain, '^www\\.', '') <> ALL($3::text[])
       ORDER BY domain_rating DESC
       LIMIT $2
-    `, [minDomainRating, limit]);
+    `, [minDomainRating, limit, excludeDomains]);
   }
 
-  // Get sites ranking for EMF keywords (content-relevant prospects)
+  // Get sites ranking for EMF keywords (content-relevant prospects).
+  // excludeUrls: full URLs already turned into prospects (worker dedups SERP rows by url).
+  // Same rationale as getCompetitorReferringDomains — excludes consumed rows so the query
+  // reaches the ~4,700 untapped SERP results instead of re-fetching the same top 30.
   async getEmfSerpResults(
     minPosition = 1,
     maxPosition = 50,
-    limit = 100
+    limit = 100,
+    excludeUrls: string[] = []
   ): Promise<SerpResult[]> {
     return seoQuery<SerpResult>(`
       SELECT id, keyword, position, domain, url, title, is_our_domain
@@ -92,9 +105,10 @@ export class SeoDataService {
       WHERE is_our_domain = FALSE
         AND position >= $1
         AND position <= $2
+        AND url <> ALL($4::text[])
       ORDER BY position ASC
       LIMIT $3
-    `, [minPosition, maxPosition, limit]);
+    `, [minPosition, maxPosition, limit, excludeUrls]);
   }
 
   // Get domain metrics from cache

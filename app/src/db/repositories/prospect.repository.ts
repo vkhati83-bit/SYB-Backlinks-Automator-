@@ -191,6 +191,26 @@ export class ProspectRepository extends BaseRepository<Prospect> {
     `, values);
   }
 
+  // Every distinct domain we've already turned into a (non-deleted) prospect.
+  // Passed to the SEO service as an exclusion list so prospecting queries reach past
+  // already-consumed rows into fresh inventory. Matches the deleted_at IS NULL semantics
+  // of findByDomain, so the SQL exclusion is identical to the worker's per-row dedup.
+  async getProspectedDomains(): Promise<string[]> {
+    const rows = await this.query<{ domain: string }>(
+      `SELECT DISTINCT domain FROM prospects WHERE deleted_at IS NULL`
+    );
+    return rows.map(r => r.domain);
+  }
+
+  // Every distinct URL we've already turned into a (non-deleted) prospect.
+  // Used to exclude consumed SERP/broken-link rows (worker dedups those by url).
+  async getProspectedUrls(): Promise<string[]> {
+    const rows = await this.query<{ url: string }>(
+      `SELECT DISTINCT url FROM prospects WHERE deleted_at IS NULL`
+    );
+    return rows.map(r => r.url);
+  }
+
   async isDomainBlocked(domain: string): Promise<boolean> {
     const result = await this.queryOne<{ exists: boolean }>(`
       SELECT EXISTS(
