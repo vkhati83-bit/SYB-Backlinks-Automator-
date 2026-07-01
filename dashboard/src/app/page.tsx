@@ -19,6 +19,7 @@ interface DashboardStats {
 export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [safetyMode, setSafetyMode] = useState<string | null>(null);
 
   useEffect(() => {
     fetchStats();
@@ -27,11 +28,17 @@ export default function Dashboard() {
   const fetchStats = async () => {
     try {
       // Fetch from real APIs
-      const [metricsRes, prospectsRes, emailsRes] = await Promise.all([
+      const [metricsRes, prospectsRes, emailsRes, settingsRes] = await Promise.all([
         fetch(`${API_BASE}/metrics/summary`),
         fetch(`${API_BASE}/prospects/stats`),
         fetch(`${API_BASE}/emails?status=pending_review&limit=1`),
+        fetch(`${API_BASE}/settings`),
       ]);
+
+      if (settingsRes.ok) {
+        const s = await settingsRes.json();
+        setSafetyMode(s.settings?.safety_mode || 'test');
+      }
 
       let pendingReview = 0;
       let pendingApproval = 0;
@@ -239,18 +246,32 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Safety Mode Banner */}
-      <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">&#128737;</span>
-          <div>
-            <h3 className="font-semibold text-yellow-800">Safety Mode Active</h3>
-            <p className="text-yellow-700 text-sm">
-              All emails are redirected to vicky@shieldyourbody.com for testing.
-            </p>
+      {/* Safety Mode Banner - reflects the actual safety_mode setting, not a hardcoded value */}
+      {safetyMode === 'live' ? (
+        <div className="mt-8 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">&#128308;</span>
+            <div>
+              <h3 className="font-semibold text-red-800">Live Mode</h3>
+              <p className="text-red-700 text-sm">
+                Emails are sending to real recipients. This is not a test.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">&#128737;</span>
+            <div>
+              <h3 className="font-semibold text-yellow-800">Test Mode</h3>
+              <p className="text-yellow-700 text-sm">
+                All emails are redirected to vicky@shieldyourbody.com for testing.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
