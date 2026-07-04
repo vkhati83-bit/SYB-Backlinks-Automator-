@@ -264,7 +264,7 @@ router.post('/factory-reset', async (req: Request, res: Response) => {
         ('min_domain_authority', '20', 'Minimum DA for prospects'),
         ('max_spam_score', '30', 'Maximum spam score for prospects'),
         ('min_monthly_traffic', '1000', 'Minimum monthly traffic for prospects'),
-        ('claude_model', '"claude-sonnet-4-20250514"', 'Claude model for email generation'),
+        ('claude_model', '"claude-sonnet-5"', 'Claude model for email generation'),
         ('warmup_enabled', 'true', 'Whether email warmup is enabled'),
         ('warmup_week', '1', 'Current warmup week (1-7)'),
         ('email_signature', '""', 'Signature appended to every outreach email'),
