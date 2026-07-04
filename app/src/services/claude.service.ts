@@ -194,6 +194,10 @@ async function generateEmail(prompt: string): Promise<GeneratedEmail> {
     const response = await anthropic.messages.create({
       model: env.CLAUDE_MODEL,
       max_tokens: 1024,
+      // Sonnet 5 runs adaptive thinking by default when `thinking` is omitted, which makes
+      // content[0] a thinking block. Templated outreach needs no reasoning — disable it to
+      // keep responses text-only and save tokens/latency.
+      thinking: { type: 'disabled' },
       system: SYSTEM_PROMPT,
       messages: [
         {
@@ -203,13 +207,14 @@ async function generateEmail(prompt: string): Promise<GeneratedEmail> {
       ],
     });
 
-    const content = response.content[0];
-    if (content.type !== 'text') {
-      throw new Error('Unexpected response type');
+    // Find the text block — never assume content[0] is text (a thinking block can precede it).
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (textBlock?.type !== 'text') {
+      throw new Error('No text block in response');
     }
 
     // Parse JSON from response
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+    const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('No JSON found in response');
     }
@@ -343,12 +348,13 @@ Respond with JSON only:
       messages: [{ role: 'user', content: prompt }],
     });
 
-    const content = response.content[0];
-    if (content.type !== 'text') {
-      throw new Error('Unexpected response type');
+    // Find the text block — don't assume content[0] is text (guards against thinking blocks).
+    const textBlock = response.content.find((b) => b.type === 'text');
+    if (textBlock?.type !== 'text') {
+      throw new Error('No text block in response');
     }
 
-    const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+    const jsonMatch = textBlock.text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('No JSON found');
     }
