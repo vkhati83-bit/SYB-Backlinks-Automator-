@@ -338,7 +338,7 @@ Respond with JSON only:
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-haiku-20241022', // Updated to current fast model for classification
+      model: 'claude-haiku-4-5', // Current fast model for classification (claude-3-5-haiku retired 2026-02-19)
       max_tokens: 256,
       messages: [{ role: 'user', content: prompt }],
     });

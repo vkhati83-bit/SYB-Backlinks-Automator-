@@ -52,7 +52,7 @@ export class SettingsRepository {
       min_domain_authority: settings.min_domain_authority as number || 20,
       max_spam_score: settings.max_spam_score as number || 30,
       min_monthly_traffic: settings.min_monthly_traffic as number || 1000,
-      claude_model: settings.claude_model as string || 'claude-sonnet-4-20250514',
+      claude_model: settings.claude_model as string || 'claude-sonnet-5',
       warmup_enabled: settings.warmup_enabled as boolean ?? true,
       warmup_week: settings.warmup_week as number || 1,
       email_signature: settings.email_signature as string || '',
