@@ -5,6 +5,7 @@ import { generateOutreachEmail } from '../services/claude.service.js';
 import { findResearchCategory } from '../services/research-matcher.service.js';
 import { emailRepository, prospectRepository, contactRepository, auditRepository, settingsRepository } from '../db/repositories/index.js';
 import logger from '../utils/logger.js';
+import { healthcheck } from '../utils/healthcheck.js';
 
 export interface EmailGeneratorJobData {
   prospectId: string;
@@ -146,6 +147,15 @@ export function createEmailGeneratorWorker() {
 
   worker.on('failed', (job, error) => {
     logger.error(`Email generator job ${job?.id} failed:`, error);
+    // Same-day alert for SYSTEMIC generation failures on autopilot jobs — a retired model
+    // or a bad/blocked API key breaks every call identically. This is the exact class that
+    // ran silently: the autopilot pings "success" for queuing jobs, then the jobs die here
+    // unseen. Transient errors (429/5xx/network) are excluded on purpose — the emails-flowing
+    // dead-man covers sustained outages without false-alarming on one flaky prospect.
+    const status = (error as { status?: number }).status;
+    if (job?.data?.autopilot && typeof status === 'number' && [400, 401, 403, 404].includes(status)) {
+      void healthcheck.autopilotFail(`generation failed (HTTP ${status}): ${error?.message ?? 'unknown'}`);
+    }
   });
 
   logger.info('Email generator worker started');
