@@ -29,6 +29,25 @@ export const researchDb = env.RESEARCH_DATABASE_URL
     })
   : null;
 
+// CRITICAL: pg emits an 'error' event on the Pool when an IDLE pooled client's
+// connection drops (e.g. Railway's Postgres proxy closing an idle TCP socket —
+// a routine ECONNRESET). An 'error' event with no listener is re-thrown by Node
+// as an uncaught exception, crashing the whole process. That is exactly what took
+// the service down on 2026-07-19 02:00 UTC: one idle-connection reset crashed the
+// process, Railway exhausted its 3 restart retries, and the service stayed dead —
+// autopilot cron, workers, and healthcheck pings all stopped. These handlers turn
+// that fatal event into a logged warning; the broken client is discarded and the
+// pool transparently opens a fresh one on the next query.
+db.on('error', (err) => {
+  logger.warn(`Postgres pool (main) idle-client error — recovering: ${err.message}`);
+});
+seoDb.on('error', (err) => {
+  logger.warn(`Postgres pool (seo) idle-client error — recovering: ${err.message}`);
+});
+researchDb?.on('error', (err) => {
+  logger.warn(`Postgres pool (research) idle-client error — recovering: ${err.message}`);
+});
+
 // Test connections
 export async function testConnections(): Promise<void> {
   try {
