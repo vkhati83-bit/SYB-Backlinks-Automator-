@@ -17,6 +17,21 @@ export interface SendEmailResult {
   success: boolean;
   resendId?: string;
   error?: string;
+  // true = the failure is terminal (e.g. malformed recipient); retrying will never help,
+  // so the caller should mark the email dead instead of re-queuing it.
+  permanent?: boolean;
+}
+
+// Same pattern the email-validator uses, so "valid to send" means one thing everywhere.
+const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+// Contacts occasionally get scraped with a scheme prefix or as outright junk
+// (e.g. "mailto:info@eyesafe.com", "http://info@mdrt.org", an "smp://…onion" address).
+// Strip a recoverable "mailto:" wrapper, then hard-validate. Returns the clean address or
+// null if it can never be a real recipient — the last gate before Resend.
+export function normalizeRecipient(raw: string): string | null {
+  const cleaned = raw.trim().replace(/^mailto:/i, '').trim();
+  return EMAIL_PATTERN.test(cleaned) ? cleaned : null;
 }
 
 // Convert plain text body to HTML with proper paragraph grouping
@@ -36,8 +51,21 @@ function textToHtml(text: string): string {
 
 // Send email via Resend
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
+  // Validate the INTENDED recipient before anything else. Doing it pre-redirect matters:
+  // in test mode getEmailRecipient() rewrites the address to a known-good test inbox, which
+  // would mask a garbage contact and let it sit in the queue forever.
+  const cleanRecipient = normalizeRecipient(input.to);
+  if (!cleanRecipient) {
+    logger.warn(`Rejecting email — recipient is not a valid address: "${input.to}"`);
+    return {
+      success: false,
+      error: `Invalid recipient address: "${input.to}"`,
+      permanent: true,
+    };
+  }
+
   // Apply safety mode redirect (now reads from DB)
-  const actualRecipient = await getEmailRecipient(input.to);
+  const actualRecipient = await getEmailRecipient(cleanRecipient);
 
   try {
     logger.info(`Sending email to: ${actualRecipient}`, {
