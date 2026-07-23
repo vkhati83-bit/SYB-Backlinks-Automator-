@@ -53,6 +53,14 @@ async function processEmailSenderJob(job: Job<EmailSenderJobData>): Promise<{ se
   });
 
   if (!result.success) {
+    // Terminal failure (e.g. malformed recipient) — retrying can never succeed. Mark the
+    // email dead and drop the prospect so the job stops looping and clogging the queue.
+    if (result.permanent) {
+      logger.warn(`Email ${emailId} permanently undeliverable, marking rejected: ${result.error}`);
+      await emailRepository.updateStatus(emailId, 'rejected');
+      await prospectRepository.updateStatus(email.prospect_id, 'rejected');
+      return { sent: false };
+    }
     logger.error(`Failed to send email ${emailId}:`, result.error);
     throw new Error(`Email send failed: ${result.error}`);
   }
